@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+task_sysroot=$(rustc --print sysroot)
+task_host=$(rustc -vV | sed -n 's/^host: //p')
+
+exec "$task_sysroot/lib/rustlib/$task_host/bin/rust-lld" "$@"

@@ -1,0 +1,6 @@
+/target/
+/.build/
+/captures/
+/dist/
+.DS_Store
+*.ppm

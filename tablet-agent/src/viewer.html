@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remarque Live</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #171918;
+      color: #f4f5f2;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      background: #171918;
+    }
+
+    main {
+      display: grid;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      place-items: center;
+      overflow: hidden;
+      background: #111312;
+    }
+
+    canvas {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: 3 / 4;
+      background: #fff;
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  <main id="viewer">
+    <canvas id="screen" width="1620" height="2160"></canvas>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const HEADER_SIZE = 16;
+      const MAGIC = "RMKS";
+      const WIDTH = 1620;
+      const HEIGHT = 2160;
+      const STRIDE = 6528;
+      const FULL_FRAME = 1;
+      const DELTA_FRAME = 2;
+
+      const canvas = document.querySelector("#screen");
+      const context = canvas.getContext("2d", { alpha: false });
+      const viewer = document.querySelector("#viewer");
+
+      let socket;
+      let reconnectTimer;
+
+      function readMagic(bytes) {
+        return String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+      }
+
+      function paintFull(bytes, payloadLength) {
+        if (payloadLength !== STRIDE * HEIGHT) throw new Error("Invalid frame size");
+        const image = context.createImageData(WIDTH, HEIGHT);
+        const rgba = image.data;
+        const payloadStart = HEADER_SIZE;
+
+        for (let y = 0; y < HEIGHT; y += 1) {
+          let source = payloadStart + y * STRIDE;
+          let destination = y * WIDTH * 4;
+          for (let x = 0; x < WIDTH; x += 1) {
+            rgba[destination] = bytes[source + 2];
+            rgba[destination + 1] = bytes[source + 1];
+            rgba[destination + 2] = bytes[source];
+            rgba[destination + 3] = 255;
+            source += 4;
+            destination += 4;
+          }
+        }
+
+        context.putImageData(image, 0, 0);
+      }
+
+      function paintDelta(bytes, view, tileCount) {
+        let cursor = HEADER_SIZE;
+
+        for (let tile = 0; tile < tileCount; tile += 1) {
+          if (cursor + 8 > bytes.length) throw new Error("Truncated tile header");
+          const x = view.getUint16(cursor, true);
+          const y = view.getUint16(cursor + 2, true);
+          const width = view.getUint16(cursor + 4, true);
+          const height = view.getUint16(cursor + 6, true);
+          cursor += 8;
+
+          const pixelBytes = width * height * 4;
+          if (cursor + pixelBytes > bytes.length) throw new Error("Truncated tile pixels");
+
+          const image = context.createImageData(width, height);
+          const rgba = image.data;
+          for (let source = cursor, destination = 0; source < cursor + pixelBytes; source += 4) {
+            rgba[destination] = bytes[source + 2];
+            rgba[destination + 1] = bytes[source + 1];
+            rgba[destination + 2] = bytes[source];
+            rgba[destination + 3] = 255;
+            destination += 4;
+          }
+          context.putImageData(image, x, y);
+          cursor += pixelBytes;
+        }
+
+        if (cursor !== bytes.length) throw new Error("Unexpected trailing tile data");
+      }
+
+      function handleMessage(event) {
+        try {
+          const bytes = new Uint8Array(event.data);
+          if (bytes.length < HEADER_SIZE) throw new Error("Truncated message");
+          if (readMagic(bytes) !== MAGIC) throw new Error("Unknown protocol");
+
+          const view = new DataView(event.data);
+          const version = view.getUint8(4);
+          const messageType = view.getUint8(5);
+          const payloadLength = view.getUint32(8, true);
+          const tileCount = view.getUint32(12, true);
+
+          if (version !== 2) throw new Error("Unsupported protocol version");
+          if (bytes.length !== HEADER_SIZE + payloadLength) throw new Error("Invalid payload size");
+
+          if (messageType === FULL_FRAME) {
+            paintFull(bytes, payloadLength);
+          } else if (messageType === DELTA_FRAME) {
+            paintDelta(bytes, view, tileCount);
+          } else {
+            throw new Error("Unknown message type");
+          }
+
+        } catch (error) {
+          console.error(error);
+          socket?.close();
+        }
+      }
+
+      function connect() {
+        clearTimeout(reconnectTimer);
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        socket = new WebSocket(`${scheme}://${location.host}/ws/2`);
+        socket.binaryType = "arraybuffer";
+
+        socket.addEventListener("message", handleMessage);
+        socket.addEventListener("close", () => {
+          reconnectTimer = setTimeout(connect, 1200);
+        });
+        socket.addEventListener("error", () => socket.close());
+      }
+
+      document.addEventListener("keydown", async (event) => {
+        if (!(event.metaKey && event.key.toLowerCase() === "f")) return;
+        event.preventDefault();
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await viewer.requestFullscreen();
+        }
+      });
+
+      connect();
+    })();
+  </script>
+</body>
+</html>

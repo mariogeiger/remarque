@@ -1,0 +1,9 @@
+[workspace]
+members = ["tablet-agent"]
+resolver = "3"
+
+[profile.release]
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
