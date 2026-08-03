@@ -74,18 +74,20 @@ screen width; tall pages pan vertically, while a short or landscape page leaves
 the out-of-page area gray. Two fingers pan and zoom within the page. A
 one-finger inward swipe from the left or right edge changes page.
 
-Stationary one-finger taps operate the library and toolbar through the same
-palm-rejection state machine. Tool choice does not add UI state: the stylus tip
-is the fineliner and the opposite end is the eraser.
+Stationary one-finger taps, edge swipes, and two-finger pinches are mutually
+exclusive states in one gesture recognizer behind the palm-contact filter.
+Tool choice does not add UI state: the stylus tip is the fineliner and the
+opposite end is the eraser.
 
 The tablet library is available directly on screen. The Telegram surface keeps
 only two commands: `/library` opens a document remotely and `/export` chooses a
 current-page or whole-document export. Sending a PDF imports and opens it.
 
 The Telegram daemon and graphical process have no shared memory or lifecycle.
-They exchange atomically renamed JSON requests and responses. A request remains
-durable until its response is durable, and the bot advances its Telegram offset
-only after both the tablet effect and its reply succeed.
+They exchange atomically renamed JSON requests and responses through the same
+durable-file primitive used by state, downloads, and PDF export. A request
+remains durable until its response is durable, and the bot advances its
+Telegram offset only after both the tablet effect and its reply succeed.
 
 ## Behavior rules
 

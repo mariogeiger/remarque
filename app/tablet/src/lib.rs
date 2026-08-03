@@ -10,7 +10,7 @@ mod draw_document_library;
 mod draw_text;
 #[cfg(feature = "takeover")]
 mod draw_toolbar;
-#[cfg(feature = "takeover")]
+#[cfg(any(feature = "takeover", test))]
 mod draw_viewport_indicators;
 #[cfg(any(feature = "takeover", test))]
 mod edge_page_swipe;
@@ -28,11 +28,15 @@ mod page;
 mod page_coordinates;
 #[cfg(feature = "takeover")]
 mod pdfium;
+#[cfg(any(feature = "takeover", test))]
+mod render_page_view;
 #[cfg(feature = "takeover")]
 pub mod screen_stream;
 #[cfg(any(feature = "takeover", test))]
 mod screen_stream_protocol;
 pub mod toolbar;
+#[cfg(any(feature = "takeover", test))]
+mod touch_gesture;
 #[cfg(any(feature = "takeover", test))]
 mod touch_tap;
 pub use remarque_core::bgra_image;

@@ -2,6 +2,29 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.7.0 - 2026-08-03
+
+### Changed
+
+- Touch recognition now has one explicit gesture state instead of independent
+  tap, swipe, pinch, and suppression flags.
+- Zoom redraws precompute the scene column for each screen column instead of
+  repeating that coordinate transform for every pixel row.
+- JSON state, mailbox messages, downloaded PDFs, and exported PDFs now share
+  one collision-safe atomic-file implementation that removes failed temporary
+  writes.
+- Toolbar hit regions derive from the same width constants as their rendered
+  buttons, and document/exchange invariants reject colliding identifiers.
+
+### Fixed
+
+- Horizontal and vertical viewport indicators now compare the visible screen
+  extent with the scene extent in the correct order.
+- A Telegram document operation arriving during a pen or touch sequence now
+  finishes the current edit and cancels the gesture before changing pages.
+- Raster and display rectangle arithmetic now clips overflowing coordinates
+  instead of wrapping.
+
 ## 0.6.0 - 2026-08-03
 
 ### Added

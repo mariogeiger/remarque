@@ -10,19 +10,20 @@ use crate::draw_viewport_indicators::draw_viewport_indicators;
 use crate::edge_page_swipe::{page_delta_from_edge_swipe, starts_at_page_edge};
 use crate::erase_strokes::{EraserThickness, erase_stroke};
 use crate::export_document_pages::export_document_pages;
-use crate::filter_touch_sequences::RejectPalmContactSequences;
 use crate::fineliner::{FinelinerStrokeBuilder, FinelinerThickness};
 use crate::input::{PenFrame, PenTool, TouchFrame};
 use crate::page::Page;
 use crate::pdfium::read_pdf_page_sizes;
-use crate::render_fineliner::{
-    FinelinerRasterPoint, FinelinerRasterizer, nonzero_coverage_rectangle,
-    raster_width_from_stored_quarters, render_fineliner_raster_points,
+use crate::render_fineliner::{FinelinerRasterizer, render_fineliner_raster_points};
+use crate::render_page_view::{
+    eraser_preview_point, fineliner_segment_rectangle, identity_transform, midpoint,
+    rectangle_contains_point, transform_background_nearest_neighbor, transform_stroke_point,
 };
-use crate::stroke::{PenSample, Stroke, StrokePoint};
-use crate::toolbar::{ToolbarAction, map_x_to_action};
-use crate::touch_tap::{TapSurface, TouchTap};
-use crate::view_transform::{Bounds, Point, Size, ViewTransform, centroid, two_finger_scale};
+use crate::stroke::{PenSample, Stroke};
+use crate::toolbar::{ToolbarAction, toolbar_action_at_x};
+use crate::touch_gesture::{OneFingerGesture, TouchGestureEvent, TouchGestureRecognizer};
+use crate::touch_tap::TapSurface;
+use crate::view_transform::{Bounds, Point, Size, ViewTransform, two_finger_scale};
 use remarque_document::{DocumentSummary, ExportScope};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use std::time::{Duration, Instant};
 
 const PINCH_RENDER_INTERVAL: Duration = Duration::from_millis(16);
 
-enum ActiveStroke {
+enum PenContact {
     Fineliner {
         builder: FinelinerStrokeBuilder,
         color: Color,
@@ -52,11 +53,6 @@ struct ImageBackup {
     pixels: Vec<u8>,
 }
 
-struct EdgeSwipe {
-    start: Point,
-    current: Point,
-}
-
 struct OpenDocument {
     document_id: String,
     page: Page,
@@ -73,13 +69,9 @@ pub struct Notebook {
     eraser_thickness: EraserThickness,
     color: Color,
     transform: ViewTransform,
-    active_stroke: Option<ActiveStroke>,
+    active_pen_contact: Option<PenContact>,
     pen_proximity: bool,
-    reject_palm_contact_sequences: RejectPalmContactSequences,
-    previous_pinch: Option<[Point; 2]>,
-    edge_swipe: Option<EdgeSwipe>,
-    touch_tap: Option<TouchTap>,
-    ignore_touch_taps_until_release: bool,
+    touch_gestures: TouchGestureRecognizer,
     last_pinch_render: Instant,
 }
 
@@ -105,13 +97,9 @@ impl Notebook {
                 },
                 scale: 1.0,
             },
-            active_stroke: None,
+            active_pen_contact: None,
             pen_proximity: false,
-            reject_palm_contact_sequences: RejectPalmContactSequences::default(),
-            previous_pinch: None,
-            edge_swipe: None,
-            touch_tap: None,
-            ignore_touch_taps_until_release: false,
+            touch_gestures: TouchGestureRecognizer::default(),
             last_pinch_render: Instant::now(),
         };
         if let Err(error) = notebook.restore_state() {
@@ -136,6 +124,7 @@ impl Notebook {
         source_path: &Path,
         title: String,
     ) -> io::Result<DocumentSummary> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
         let page_count = u32::try_from(read_pdf_page_sizes(source_path)?.len())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "PDF has too many pages"))?;
@@ -147,6 +136,7 @@ impl Notebook {
     }
 
     pub fn open_document(&mut self, document_id: &str) -> io::Result<DocumentSummary> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
         let summary = self.library.document_summary(document_id)?;
         self.show_document(document_id)?;
@@ -154,13 +144,15 @@ impl Notebook {
     }
 
     pub fn create_notebook(&mut self) -> io::Result<DocumentSummary> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
-        let summary = self.library.create_notebook();
+        let summary = self.library.create_notebook()?;
         self.show_document(&summary.document_id)?;
         Ok(summary)
     }
 
     pub fn insert_blank_page(&mut self) -> io::Result<DocumentSummary> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
         let document_id = self.open_document_id()?.to_owned();
         let summary = self.library.insert_blank_page(&document_id)?;
@@ -169,6 +161,7 @@ impl Notebook {
     }
 
     pub fn change_page(&mut self, delta: i32) -> io::Result<DocumentSummary> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
         let document_id = self.open_document_id()?.to_owned();
         if self.library.change_page(&document_id, delta)? {
@@ -182,6 +175,7 @@ impl Notebook {
     }
 
     pub fn export(&mut self, destination: &Path, scope: ExportScope) -> io::Result<()> {
+        self.finish_editing_input_sequences()?;
         self.store_open_document_strokes()?;
         self.save_state()?;
         let document_id = self.open_document_id()?.to_owned();
@@ -208,21 +202,21 @@ impl Notebook {
     pub fn apply_pen_frame(&mut self, frame: PenFrame) -> io::Result<bool> {
         self.pen_proximity = frame.proximity;
         if !frame.touching {
-            if self.active_stroke.is_some() {
-                self.finish_active_stroke()?;
+            if self.active_pen_contact.is_some() {
+                self.finish_pen_contact()?;
             }
             return Ok(false);
         }
 
         if self.open_document.is_none() {
-            if self.active_stroke.is_none() {
+            if self.active_pen_contact.is_none() {
                 let documents = self.library.summaries();
                 let action = document_library_action_at(
                     frame.position,
                     &documents,
                     self.library_screen_index,
                 );
-                self.active_stroke = Some(ActiveStroke::Library);
+                self.active_pen_contact = Some(PenContact::Library);
                 if self.apply_document_library_action(action)? {
                     return Ok(true);
                 }
@@ -230,29 +224,28 @@ impl Notebook {
             return Ok(false);
         }
 
-        if self.active_stroke.is_none() {
+        if self.active_pen_contact.is_none() {
             if frame.position.y < TOOLBAR_HEIGHT as f64 {
-                if self.apply_toolbar_action(map_x_to_action(frame.position.x as usize))? {
-                    return Ok(true);
-                }
-                self.active_stroke = Some(ActiveStroke::Toolbar);
+                self.apply_toolbar_action(toolbar_action_at_x(frame.position.x as usize))?;
+                self.active_pen_contact = Some(PenContact::Toolbar);
                 if self.open_document.is_some() {
                     self.redraw_toolbar()?;
                 }
                 return Ok(false);
             }
-            if !rectangle_contains(self.page()?.rectangle, self.view_to_scene(frame.position)) {
-                self.active_stroke = Some(ActiveStroke::OutsidePage);
+            if !rectangle_contains_point(self.page()?.rectangle, self.view_to_scene(frame.position))
+            {
+                self.active_pen_contact = Some(PenContact::OutsidePage);
                 return Ok(false);
             }
-            self.active_stroke = Some(match frame.tool {
-                PenTool::Tip => ActiveStroke::Fineliner {
+            self.active_pen_contact = Some(match frame.tool {
+                PenTool::Tip => PenContact::Fineliner {
                     builder: FinelinerStrokeBuilder::new(self.fineliner_thickness),
                     color: self.color,
                     rasterizer: FinelinerRasterizer::new(self.color),
                     dirty: None,
                 },
-                PenTool::EraserEnd => ActiveStroke::Eraser {
+                PenTool::EraserEnd => PenContact::Eraser {
                     centerline: Vec::new(),
                     cursor: None,
                 },
@@ -261,8 +254,12 @@ impl Notebook {
 
         let scene_position = self.view_to_scene(frame.position);
         let viewport = self.viewport();
-        match self.active_stroke.as_mut().unwrap() {
-            ActiveStroke::Fineliner {
+        let contact = self
+            .active_pen_contact
+            .as_mut()
+            .ok_or_else(|| io::Error::other("touching pen has no active contact"))?;
+        match contact {
+            PenContact::Fineliner {
                 builder,
                 color: _,
                 rasterizer,
@@ -276,15 +273,15 @@ impl Notebook {
                     },
                     self.transform.scale as f32,
                 );
-                let screen_point = transform_point(point, self.transform, viewport);
+                let screen_point = transform_stroke_point(point, self.transform, viewport);
                 let screen_previous = builder
                     .points()
                     .get(builder.points().len().saturating_sub(2))
                     .copied()
-                    .map(|previous| transform_point(previous, self.transform, viewport))
+                    .map(|previous| transform_stroke_point(previous, self.transform, viewport))
                     .unwrap_or(screen_point);
                 rasterizer.append_point(&mut self.image, screen_point);
-                let changed = segment_rectangle(
+                let changed = fineliner_segment_rectangle(
                     screen_previous,
                     screen_point,
                     self.image.width(),
@@ -294,15 +291,15 @@ impl Notebook {
                 self.display.copy_from(&self.image, changed)?;
                 self.display.show_mono_fast(changed);
             }
-            ActiveStroke::Eraser { centerline, cursor } => {
+            PenContact::Eraser { centerline, cursor } => {
                 let previous = centerline.last().copied().unwrap_or(scene_position);
                 centerline.push(scene_position);
                 let width = self.eraser_thickness.pixels() * self.transform.scale;
                 let preview = [
-                    preview_point(previous, width, self.transform, viewport),
-                    preview_point(scene_position, width, self.transform, viewport),
+                    eraser_preview_point(previous, width, self.transform, viewport),
+                    eraser_preview_point(scene_position, width, self.transform, viewport),
                 ];
-                let mut changed = segment_rectangle(
+                let mut changed = fineliner_segment_rectangle(
                     preview[0],
                     preview[1],
                     self.image.width(),
@@ -319,7 +316,7 @@ impl Notebook {
                     changed = changed.include(previous_cursor.rectangle);
                 }
                 render_fineliner_raster_points(&mut self.image, &preview, Color::White);
-                let cursor_rectangle = segment_rectangle(
+                let cursor_rectangle = fineliner_segment_rectangle(
                     preview[1],
                     preview[1],
                     self.image.width(),
@@ -345,86 +342,51 @@ impl Notebook {
                 self.display.copy_from(&self.image, changed)?;
                 self.display.show_mono_fast(changed);
             }
-            ActiveStroke::Toolbar | ActiveStroke::Library => {}
-            ActiveStroke::OutsidePage => {}
+            PenContact::Toolbar | PenContact::Library => {}
+            PenContact::OutsidePage => {}
         }
         Ok(false)
     }
 
     pub fn apply_touch_frame(&mut self, frame: TouchFrame) -> io::Result<bool> {
-        let Some(points) = self
-            .reject_palm_contact_sequences
-            .accept_at_most_two_finger_points(&frame, self.pen_proximity)
-        else {
-            self.edge_swipe = None;
-            self.touch_tap = None;
-            self.ignore_touch_taps_until_release = true;
-            self.finish_pinch()?;
-            return Ok(false);
-        };
-        match points {
-            [] => {
-                if self.ignore_touch_taps_until_release {
-                    self.ignore_touch_taps_until_release = false;
-                    self.edge_swipe = None;
-                    self.touch_tap = None;
-                    self.finish_pinch()?;
-                    return Ok(false);
+        let document_is_open = self.open_document.is_some();
+        let page_count = self
+            .open_document
+            .as_ref()
+            .map(|document| self.library.document_summary(&document.document_id))
+            .transpose()?
+            .map_or(0, |summary| summary.page_count);
+        let screen_width = self.width() as f64;
+        let event = self
+            .touch_gestures
+            .update(&frame, self.pen_proximity, |position| {
+                if !document_is_open {
+                    Some(OneFingerGesture::Tap(TapSurface::DocumentLibrary))
+                } else if position.y < TOOLBAR_HEIGHT as f64 {
+                    Some(OneFingerGesture::Tap(TapSurface::Toolbar))
+                } else if page_count > 1 && starts_at_page_edge(position, screen_width) {
+                    Some(OneFingerGesture::PageSwipe)
+                } else {
+                    None
                 }
-                if self.previous_pinch.is_some() {
-                    self.edge_swipe = None;
-                    self.touch_tap = None;
-                    self.finish_pinch()?;
-                    return Ok(false);
-                }
-                if let Some(tap) = self.touch_tap.take()
-                    && let Some((surface, position)) = tap.finish()
-                {
-                    return self.apply_touch_tap(surface, position);
-                }
-                if let Some(swipe) = self.edge_swipe.take()
-                    && let Some(delta) =
-                        page_delta_from_edge_swipe(swipe.start, swipe.current, self.width() as f64)
-                {
+            });
+        match event {
+            Some(TouchGestureEvent::Tap { surface, position }) => {
+                return self.apply_touch_tap(surface, position);
+            }
+            Some(TouchGestureEvent::PageSwipe { start, end }) => {
+                if let Some(delta) = page_delta_from_edge_swipe(start, end, screen_width) {
                     self.change_page(delta)?;
                 }
             }
-            [point] => {
-                if self.previous_pinch.is_some() || self.ignore_touch_taps_until_release {
-                    return Ok(false);
-                }
-                if let Some(tap) = &mut self.touch_tap {
-                    tap.move_to(point.position);
-                } else if let Some(swipe) = &mut self.edge_swipe {
-                    swipe.current = point.position;
-                } else if self.open_document.is_none() {
-                    self.touch_tap =
-                        Some(TouchTap::start(TapSurface::DocumentLibrary, point.position));
-                } else if point.position.y < TOOLBAR_HEIGHT as f64 {
-                    self.touch_tap = Some(TouchTap::start(TapSurface::Toolbar, point.position));
-                } else if self
-                    .library
-                    .document_summary(self.open_document_id()?)?
-                    .page_count
-                    > 1
-                    && point.position.y >= TOOLBAR_HEIGHT as f64
-                    && starts_at_page_edge(point.position, self.width() as f64)
-                {
-                    self.edge_swipe = Some(EdgeSwipe {
-                        start: point.position,
-                        current: point.position,
-                    });
+            Some(TouchGestureEvent::PinchChanged { previous, current }) => {
+                if document_is_open {
+                    self.apply_pinch_change(previous, current)?;
                 }
             }
-            [first, second] => {
-                self.edge_swipe = None;
-                self.touch_tap = None;
-                self.ignore_touch_taps_until_release = true;
-                if self.open_document.is_some() {
-                    self.apply_two_finger_positions([first.position, second.position])?;
-                }
-            }
-            _ => unreachable!("touch filter accepts at most two fingers"),
+            Some(TouchGestureEvent::PinchFinished) if document_is_open => self.finish_pinch()?,
+            Some(TouchGestureEvent::PinchFinished) => {}
+            None => {}
         }
         Ok(false)
     }
@@ -440,25 +402,22 @@ impl Notebook {
             TapSurface::Toolbar
                 if self.open_document.is_some() && position.y < TOOLBAR_HEIGHT as f64 =>
             {
-                let exit = self.apply_toolbar_action(map_x_to_action(position.x as usize))?;
+                self.apply_toolbar_action(toolbar_action_at_x(position.x as usize))?;
                 if self.open_document.is_some() {
                     self.redraw_toolbar()?;
                 }
-                Ok(exit)
+                Ok(false)
             }
             _ => Ok(false),
         }
     }
 
-    fn apply_two_finger_positions(&mut self, current: [Point; 2]) -> io::Result<()> {
-        let Some(previous) = self.previous_pinch.replace(current) else {
-            return Ok(());
-        };
+    fn apply_pinch_change(&mut self, previous: [Point; 2], current: [Point; 2]) -> io::Result<()> {
         let Some(factor) = two_finger_scale(previous, current) else {
             return Ok(());
         };
-        let previous_centroid = centroid(&previous).unwrap();
-        let current_centroid = centroid(&current).unwrap();
+        let previous_centroid = midpoint(previous);
+        let current_centroid = midpoint(current);
         let target_scale = (self.transform.scale * factor).clamp(1.0, 5.0);
         let adjusted_factor = target_scale / self.transform.scale;
         if let Some(transform) = self.transform.scale_and_translate(
@@ -480,16 +439,14 @@ impl Notebook {
     }
 
     fn finish_pinch(&mut self) -> io::Result<()> {
-        if self.previous_pinch.take().is_some() {
-            self.redraw_notebook()?;
-            self.display.show_color_full();
-        }
+        self.redraw_notebook()?;
+        self.display.show_color_full();
         Ok(())
     }
 
-    fn finish_active_stroke(&mut self) -> io::Result<()> {
-        match self.active_stroke.take() {
-            Some(ActiveStroke::Fineliner {
+    fn finish_pen_contact(&mut self) -> io::Result<()> {
+        match self.active_pen_contact.take() {
+            Some(PenContact::Fineliner {
                 builder,
                 color,
                 mut rasterizer,
@@ -516,7 +473,7 @@ impl Notebook {
                     self.display.show_color(dirty);
                 }
             }
-            Some(ActiveStroke::Eraser { centerline, .. }) => {
+            Some(PenContact::Eraser { centerline, .. }) => {
                 if !centerline.is_empty() {
                     let mut surviving = Vec::new();
                     let page_x = self.page()?.rectangle.x as f64;
@@ -545,9 +502,19 @@ impl Notebook {
                     self.display.show_color_full();
                 }
             }
-            Some(ActiveStroke::OutsidePage | ActiveStroke::Toolbar | ActiveStroke::Library)
-            | None => {}
+            Some(PenContact::OutsidePage | PenContact::Toolbar | PenContact::Library) | None => {}
         }
+        Ok(())
+    }
+
+    fn finish_editing_input_sequences(&mut self) -> io::Result<()> {
+        if matches!(
+            self.active_pen_contact.as_ref(),
+            Some(PenContact::Fineliner { .. } | PenContact::Eraser { .. })
+        ) {
+            self.finish_pen_contact()?;
+        }
+        self.touch_gestures.reset();
         Ok(())
     }
 
@@ -561,7 +528,7 @@ impl Notebook {
             document.page_number,
             document.page_count,
         );
-        if self.previous_pinch.is_some() {
+        if self.touch_gestures.is_pinching() {
             let viewport = self.viewport();
             let scene = self.scene_bounds()?.size;
             draw_viewport_indicators(&mut self.image, self.transform, viewport, scene);
@@ -576,12 +543,13 @@ impl Notebook {
         let viewport = self.viewport();
         let page = self.page()?;
         let background = page.raster_background(self.width(), self.height());
-        let mut image = transform_background(
+        let mut image = transform_background_nearest_neighbor(
             &background,
             transform,
             viewport,
             self.width(),
             self.height(),
+            TOOLBAR_HEIGHT,
         );
         for stroke in &page.strokes {
             let points: Vec<_> = stroke
@@ -591,7 +559,7 @@ impl Notebook {
                 .map(|mut point| {
                     point.x += page.rectangle.x as f32;
                     point.y += page.rectangle.y as f32;
-                    transform_point(point, transform, viewport)
+                    transform_stroke_point(point, transform, viewport)
                 })
                 .collect();
             render_fineliner_raster_points(&mut image, &points, stroke.color);
@@ -646,8 +614,7 @@ impl Notebook {
         self.save_state()?;
         self.open_document = None;
         self.library_screen_index = 0;
-        self.previous_pinch = None;
-        self.edge_swipe = None;
+        self.touch_gestures.reset();
         self.redraw_document_library()
     }
 
@@ -702,7 +669,7 @@ impl Notebook {
         Ok(())
     }
 
-    fn apply_toolbar_action(&mut self, action: ToolbarAction) -> io::Result<bool> {
+    fn apply_toolbar_action(&mut self, action: ToolbarAction) -> io::Result<()> {
         match action {
             ToolbarAction::SelectThickness(thickness) => self.fineliner_thickness = thickness,
             ToolbarAction::SelectColor(color) => self.color = color,
@@ -714,7 +681,7 @@ impl Notebook {
             }
             ToolbarAction::None => {}
         }
-        Ok(false)
+        Ok(())
     }
 
     fn view_to_scene(&self, point: Point) -> Point {
@@ -758,122 +725,5 @@ impl Notebook {
             .as_mut()
             .map(|document| &mut document.page)
             .ok_or_else(|| io::Error::other("no document is open"))
-    }
-}
-
-fn identity_transform(width: usize, height: usize) -> ViewTransform {
-    ViewTransform {
-        focal_point: Point {
-            x: width as f64 * 0.5,
-            y: height as f64 * 0.5,
-        },
-        scale: 1.0,
-    }
-}
-
-fn rectangle_contains(rectangle: Rectangle, point: Point) -> bool {
-    point.x >= rectangle.x as f64
-        && point.y >= rectangle.y as f64
-        && point.x < (rectangle.x + rectangle.width) as f64
-        && point.y < (rectangle.y + rectangle.height) as f64
-}
-
-fn transform_background(
-    background: &BgraImage,
-    transform: ViewTransform,
-    viewport: Size,
-    output_width: usize,
-    output_height: usize,
-) -> BgraImage {
-    if background.width() == output_width
-        && background.height() == output_height
-        && transform == identity_transform(output_width, output_height)
-    {
-        return background.clone();
-    }
-    let mut pixels = Vec::with_capacity(output_width * output_height * 4);
-    for _ in 0..output_width * output_height {
-        pixels.extend_from_slice(&[0xe1, 0xe4, 0xe5, 0xff]);
-    }
-    for y in TOOLBAR_HEIGHT..output_height {
-        let scene_y = transform
-            .view_to_scene(
-                Point {
-                    x: 0.0,
-                    y: y as f64,
-                },
-                viewport,
-            )
-            .y
-            .floor() as isize;
-        if scene_y < 0 || scene_y >= background.height() as isize {
-            continue;
-        }
-        for x in 0..output_width {
-            let scene_x = transform
-                .view_to_scene(
-                    Point {
-                        x: x as f64,
-                        y: 0.0,
-                    },
-                    viewport,
-                )
-                .x
-                .floor() as isize;
-            if scene_x < 0 || scene_x >= background.width() as isize {
-                continue;
-            }
-            let source = (scene_y as usize * background.width() + scene_x as usize) * 4;
-            let destination = (y * output_width + x) * 4;
-            pixels[destination..destination + 4]
-                .copy_from_slice(&background.pixels()[source..source + 4]);
-        }
-    }
-    BgraImage::try_from_bgra(output_width, output_height, pixels).unwrap()
-}
-
-fn transform_point(
-    point: StrokePoint,
-    transform: ViewTransform,
-    viewport: Size,
-) -> FinelinerRasterPoint {
-    FinelinerRasterPoint {
-        x: ((f64::from(point.x) - transform.focal_point.x) * transform.scale + viewport.width * 0.5)
-            as f32,
-        y: ((f64::from(point.y) - transform.focal_point.y) * transform.scale
-            + viewport.height * 0.5) as f32,
-        width: raster_width_from_stored_quarters(
-            point.width_quarter_pixels,
-            transform.scale as f32,
-        ),
-    }
-}
-
-fn preview_point(
-    position: Point,
-    width: f64,
-    transform: ViewTransform,
-    viewport: Size,
-) -> FinelinerRasterPoint {
-    FinelinerRasterPoint {
-        x: ((position.x - transform.focal_point.x) * transform.scale + viewport.width * 0.5) as f32,
-        y: ((position.y - transform.focal_point.y) * transform.scale + viewport.height * 0.5)
-            as f32,
-        width: 0.75 + width as f32,
-    }
-}
-
-fn segment_rectangle(
-    start: FinelinerRasterPoint,
-    end: FinelinerRasterPoint,
-    image_width: usize,
-    image_height: usize,
-) -> Rectangle {
-    let bounds = nonzero_coverage_rectangle(start, end, image_width, image_height);
-    Rectangle {
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
     }
 }

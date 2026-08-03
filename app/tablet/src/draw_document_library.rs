@@ -57,10 +57,10 @@ pub(crate) fn document_library_action_at(
     if x >= QUIT_X && y < HEADER_HEIGHT {
         return DocumentLibraryAction::ExitApplication;
     }
-    if x >= NEW_NOTEBOOK_X && x < NEW_NOTEBOOK_X + NEW_NOTEBOOK_WIDTH && y < HEADER_HEIGHT {
+    if (NEW_NOTEBOOK_X..NEW_NOTEBOOK_X + NEW_NOTEBOOK_WIDTH).contains(&x) && y < HEADER_HEIGHT {
         return DocumentLibraryAction::CreateNotebook;
     }
-    if x >= ROW_X && x < ROW_X + ROW_WIDTH && y >= ROW_START_Y {
+    if (ROW_X..ROW_X + ROW_WIDTH).contains(&x) && y >= ROW_START_Y {
         let slot = (y - ROW_START_Y) / ROW_STEP;
         let within_row = (y - ROW_START_Y) % ROW_STEP < ROW_HEIGHT;
         let index = screen_index * DOCUMENTS_PER_SCREEN + slot;

@@ -274,7 +274,14 @@ fn read_events(descriptor: RawFd, mut consume: impl FnMut(u16, u16, i32)) -> io:
         if count == 0 {
             return Ok(());
         }
-        for event in bytes[..count as usize].chunks_exact(EVENT_BYTES) {
+        let count = count as usize;
+        if !count.is_multiple_of(EVENT_BYTES) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "input device returned a partial event",
+            ));
+        }
+        for event in bytes[..count].chunks_exact(EVENT_BYTES) {
             consume(
                 u16::from_ne_bytes(event[16..18].try_into().unwrap()),
                 u16::from_ne_bytes(event[18..20].try_into().unwrap()),

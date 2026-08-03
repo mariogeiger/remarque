@@ -13,20 +13,7 @@ pub(crate) fn draw_viewport_indicators(
     viewport: Size,
     scene: Size,
 ) {
-    let horizontal = viewport_indicator(
-        transform.focal_point.x,
-        transform.scale,
-        scene.width,
-        0.0,
-        viewport.width,
-    );
-    let vertical = viewport_indicator(
-        transform.focal_point.y,
-        transform.scale,
-        scene.height,
-        0.0,
-        viewport.height,
-    );
+    let [horizontal, vertical] = viewport_indicators(transform, viewport, scene);
     let track_width = viewport.width - MARGIN * 2.0;
     let track_height = viewport.height - MARGIN * 2.0;
     if let Some(indicator) = horizontal {
@@ -57,6 +44,29 @@ pub(crate) fn draw_viewport_indicators(
     }
 }
 
+fn viewport_indicators(
+    transform: ViewTransform,
+    viewport: Size,
+    scene: Size,
+) -> [Option<crate::view_transform::FractionalInterval>; 2] {
+    [
+        viewport_indicator(
+            transform.focal_point.x,
+            transform.scale,
+            viewport.width,
+            0.0,
+            scene.width,
+        ),
+        viewport_indicator(
+            transform.focal_point.y,
+            transform.scale,
+            viewport.height,
+            0.0,
+            scene.height,
+        ),
+    ]
+}
+
 fn draw_position_indicator(image: &mut BgraImage, start: Point, end: Point) {
     let point = |position: Point| FinelinerRasterPoint {
         x: position.x as f32,
@@ -64,4 +74,33 @@ fn draw_position_indicator(image: &mut BgraImage, start: Point, end: Point) {
         width: 0.75 + f32::from(WIDTH_QUARTER_PIXELS) * 0.25,
     };
     render_fineliner_raster_points(image, &[point(start), point(end)], Color::Gray);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indicators_compare_the_viewport_against_the_scene() {
+        let mut image = BgraImage::filled(1000, 800, [255, 255, 255]);
+        let transform = ViewTransform {
+            focal_point: Point { x: 500.0, y: 500.0 },
+            scale: 1.0,
+        };
+        let viewport = Size {
+            width: 1000.0,
+            height: 800.0,
+        };
+        let scene = Size {
+            width: 1000.0,
+            height: 2000.0,
+        };
+        draw_viewport_indicators(&mut image, transform, viewport, scene);
+        let [horizontal, vertical] = viewport_indicators(transform, viewport, scene);
+        assert!(horizontal.is_none());
+        let vertical = vertical.unwrap();
+        assert_eq!(vertical.length, 0.4);
+        assert_eq!(vertical.start, 0.05);
+        assert_ne!(image.pixel(976, 72), [255, 255, 255, 255]);
+    }
 }

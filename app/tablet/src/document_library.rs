@@ -80,17 +80,34 @@ impl DocumentLibrary {
         Ok(summary(document))
     }
 
-    pub fn create_notebook(&mut self) -> DocumentSummary {
+    pub fn create_notebook(&mut self) -> io::Result<DocumentSummary> {
         let number = self.next_notebook_number;
-        self.next_notebook_number += 1;
+        let next_number = number.checked_add(1).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "notebook number range is exhausted",
+            )
+        })?;
         let document = LibraryDocument {
             document_id: format!("notebook-{number}"),
             title: format!("Carnet {number}"),
             current_page: 0,
             pages: vec![DocumentPage::default()],
         };
+        if self
+            .documents
+            .iter()
+            .any(|existing| existing.document_id == document.document_id)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "next notebook ID is already in use",
+            ));
+        }
+        let summary = summary(&document);
         self.documents.push(document);
-        summary(self.documents.last().unwrap())
+        self.next_notebook_number = next_number;
+        Ok(summary)
     }
 
     pub fn import_pdf(
@@ -135,8 +152,9 @@ impl DocumentLibrary {
             current_page: 0,
             pages,
         };
+        let summary = summary(&document);
         self.documents.push(document);
-        Ok(summary(self.documents.last().unwrap()))
+        Ok(summary)
     }
 
     pub fn document_summary(&self, document_id: &str) -> io::Result<DocumentSummary> {
@@ -174,6 +192,7 @@ impl DocumentLibrary {
             ));
         }
         let mut ids = HashSet::new();
+        let mut largest_notebook_number = 0;
         for document in &self.documents {
             validate_document_id(&document.document_id)?;
             if !ids.insert(&document.document_id)
@@ -185,6 +204,19 @@ impl DocumentLibrary {
                     "document library contains an invalid document",
                 ));
             }
+            if let Some(number) = document
+                .document_id
+                .strip_prefix("notebook-")
+                .and_then(|number| number.parse::<u32>().ok())
+            {
+                largest_notebook_number = largest_notebook_number.max(number);
+            }
+        }
+        if self.next_notebook_number <= largest_notebook_number {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "next notebook number does not follow existing notebooks",
+            ));
         }
         Ok(())
     }
@@ -419,7 +451,7 @@ mod tests {
         assert_eq!(library.insert_blank_page(pdf_id).unwrap().page_count, 3);
         assert!(library.page(pdf_id).unwrap().background.is_none());
         library.store_strokes(pdf_id, Vec::new()).unwrap();
-        assert_eq!(library.create_notebook().title, "Carnet 2");
+        assert_eq!(library.create_notebook().unwrap().title, "Carnet 2");
         assert_eq!(
             library
                 .document_summary(FIRST_NOTEBOOK_ID)
@@ -494,5 +526,17 @@ mod tests {
         assert_eq!(saved["format_version"], FORMAT_VERSION);
         assert!(saved.get("active_document_id").is_none());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn validation_rejects_a_next_notebook_number_that_would_collide_later() {
+        let mut library = DocumentLibrary::with_default_notebook();
+        library.documents.push(LibraryDocument {
+            document_id: "notebook-3".to_owned(),
+            title: "Carnet 3".to_owned(),
+            current_page: 0,
+            pages: vec![DocumentPage::default()],
+        });
+        assert!(library.validate().is_err());
     }
 }

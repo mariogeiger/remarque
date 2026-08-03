@@ -31,22 +31,71 @@ pub enum ToolbarAction {
     None,
 }
 
-pub fn map_x_to_action(x: usize) -> ToolbarAction {
-    match x {
-        LIBRARY_BUTTON_X..=159 => ToolbarAction::ShowLibrary,
-        THIN_BUTTON_X..=295 => ToolbarAction::SelectThickness(FinelinerThickness::Thin),
-        MEDIUM_BUTTON_X..=383 => ToolbarAction::SelectThickness(FinelinerThickness::Medium),
-        THICK_BUTTON_X..=471 => ToolbarAction::SelectThickness(FinelinerThickness::Thick),
-        EXTRA_THICK_BUTTON_X..=559 => {
-            ToolbarAction::SelectThickness(FinelinerThickness::ExtraThick)
-        }
-        BLACK_BUTTON_X..=711 => ToolbarAction::SelectColor(Color::Black),
-        GRAY_BUTTON_X..=783 => ToolbarAction::SelectColor(Color::Gray),
-        BLUE_BUTTON_X..=855 => ToolbarAction::SelectColor(Color::Blue),
-        RED_BUTTON_X..=927 => ToolbarAction::SelectColor(Color::Red),
-        ADD_PAGE_BUTTON_X..=1343 => ToolbarAction::InsertBlankPage,
-        _ => ToolbarAction::None,
-    }
+#[derive(Clone, Copy)]
+struct ToolbarButton {
+    x: usize,
+    width: usize,
+    action: ToolbarAction,
+}
+
+const BUTTONS: [ToolbarButton; 10] = [
+    ToolbarButton {
+        x: LIBRARY_BUTTON_X,
+        width: LIBRARY_BUTTON_WIDTH,
+        action: ToolbarAction::ShowLibrary,
+    },
+    ToolbarButton {
+        x: THIN_BUTTON_X,
+        width: PRESET_BUTTON_WIDTH,
+        action: ToolbarAction::SelectThickness(FinelinerThickness::Thin),
+    },
+    ToolbarButton {
+        x: MEDIUM_BUTTON_X,
+        width: PRESET_BUTTON_WIDTH,
+        action: ToolbarAction::SelectThickness(FinelinerThickness::Medium),
+    },
+    ToolbarButton {
+        x: THICK_BUTTON_X,
+        width: PRESET_BUTTON_WIDTH,
+        action: ToolbarAction::SelectThickness(FinelinerThickness::Thick),
+    },
+    ToolbarButton {
+        x: EXTRA_THICK_BUTTON_X,
+        width: PRESET_BUTTON_WIDTH,
+        action: ToolbarAction::SelectThickness(FinelinerThickness::ExtraThick),
+    },
+    ToolbarButton {
+        x: BLACK_BUTTON_X,
+        width: COLOR_BUTTON_WIDTH,
+        action: ToolbarAction::SelectColor(Color::Black),
+    },
+    ToolbarButton {
+        x: GRAY_BUTTON_X,
+        width: COLOR_BUTTON_WIDTH,
+        action: ToolbarAction::SelectColor(Color::Gray),
+    },
+    ToolbarButton {
+        x: BLUE_BUTTON_X,
+        width: COLOR_BUTTON_WIDTH,
+        action: ToolbarAction::SelectColor(Color::Blue),
+    },
+    ToolbarButton {
+        x: RED_BUTTON_X,
+        width: COLOR_BUTTON_WIDTH,
+        action: ToolbarAction::SelectColor(Color::Red),
+    },
+    ToolbarButton {
+        x: ADD_PAGE_BUTTON_X,
+        width: ADD_PAGE_BUTTON_WIDTH,
+        action: ToolbarAction::InsertBlankPage,
+    },
+];
+
+pub fn toolbar_action_at_x(x: usize) -> ToolbarAction {
+    BUTTONS
+        .iter()
+        .find(|button| x >= button.x && x < button.x + button.width)
+        .map_or(ToolbarAction::None, |button| button.action)
 }
 
 #[cfg(test)]
@@ -56,16 +105,16 @@ mod tests {
     #[test]
     fn maps_four_thickness_presets() {
         assert_eq!(
-            map_x_to_action(EXTRA_THICK_BUTTON_X),
+            toolbar_action_at_x(EXTRA_THICK_BUTTON_X),
             ToolbarAction::SelectThickness(FinelinerThickness::ExtraThick)
         );
-        assert_eq!(map_x_to_action(560), ToolbarAction::None);
+        assert_eq!(toolbar_action_at_x(560), ToolbarAction::None);
     }
 
     #[test]
     fn maps_color_swatch_to_stroke_color() {
         assert_eq!(
-            map_x_to_action(BLUE_BUTTON_X),
+            toolbar_action_at_x(BLUE_BUTTON_X),
             ToolbarAction::SelectColor(Color::Blue)
         );
     }
@@ -73,11 +122,11 @@ mod tests {
     #[test]
     fn maps_document_buttons() {
         assert_eq!(
-            map_x_to_action(LIBRARY_BUTTON_X),
+            toolbar_action_at_x(LIBRARY_BUTTON_X),
             ToolbarAction::ShowLibrary
         );
         assert_eq!(
-            map_x_to_action(ADD_PAGE_BUTTON_X),
+            toolbar_action_at_x(ADD_PAGE_BUTTON_X),
             ToolbarAction::InsertBlankPage
         );
     }

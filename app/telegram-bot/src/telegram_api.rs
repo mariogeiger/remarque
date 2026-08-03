@@ -1,9 +1,8 @@
+use remarque_document::write_bytes_atomically;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 use ureq::unversioned::multipart::{Form, Part};
@@ -12,9 +11,9 @@ const MAX_PDF_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) enum TelegramApiError {
-    Transport,
+    Transport(String),
     Rejected { code: i64, description: String },
-    InvalidResponse,
+    InvalidResponse(String),
     Io(io::Error),
 }
 
@@ -22,7 +21,7 @@ impl TelegramApiError {
     pub fn retryable(&self) -> bool {
         matches!(
             self,
-            Self::Transport
+            Self::Transport(_)
                 | Self::Rejected {
                     code: 429 | 500..=599,
                     ..
@@ -34,11 +33,16 @@ impl TelegramApiError {
 impl fmt::Display for TelegramApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Transport => write!(formatter, "Telegram transport failed"),
+            Self::Transport(message) => write!(formatter, "Telegram transport failed: {message}"),
             Self::Rejected { code, description } => {
                 write!(formatter, "Telegram API {code}: {description}")
             }
-            Self::InvalidResponse => write!(formatter, "Telegram returned an invalid response"),
+            Self::InvalidResponse(message) => {
+                write!(
+                    formatter,
+                    "Telegram returned an invalid response: {message}"
+                )
+            }
             Self::Io(error) => write!(formatter, "local Telegram file operation failed: {error}"),
         }
     }
@@ -276,29 +280,30 @@ impl TelegramApi {
                 file_id: &document.file_id,
             },
         )?;
-        let remote_path = file.file_path.ok_or(TelegramApiError::InvalidResponse)?;
+        let remote_path = file.file_path.ok_or_else(|| {
+            TelegramApiError::InvalidResponse("getFile omitted file_path".to_owned())
+        })?;
         let url = format!(
             "https://api.telegram.org/file/bot{}/{remote_path}",
             self.token
         );
-        let mut response = self
-            .agent
-            .get(&url)
-            .call()
-            .map_err(|_| TelegramApiError::Transport)?;
+        let mut response =
+            self.agent.get(&url).call().map_err(|_| {
+                TelegramApiError::Transport("file download request failed".to_owned())
+            })?;
         let bytes = response
             .body_mut()
             .with_config()
             .limit((MAX_PDF_BYTES + 1) as u64)
             .read_to_vec()
-            .map_err(|_| TelegramApiError::Transport)?;
+            .map_err(|_| TelegramApiError::Transport("file download body failed".to_owned()))?;
         if bytes.len() > MAX_PDF_BYTES {
             return Err(TelegramApiError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "PDF exceeds the 50 MiB limit",
             )));
         }
-        write_atomically(destination, &bytes)?;
+        write_bytes_atomically(destination, &bytes)?;
         Ok(())
     }
 
@@ -321,21 +326,20 @@ impl TelegramApi {
                 Part::file(path)?
                     .file_name(file_name)
                     .mime_str("application/pdf")
-                    .map_err(|_| TelegramApiError::InvalidResponse)?,
+                    .map_err(|error| TelegramApiError::InvalidResponse(error.to_string()))?,
             );
         if let Some(reply_parameters) = &reply_parameters {
             form = form.text("reply_parameters", reply_parameters);
         }
         let url = self.method_url("sendDocument");
-        let mut response = self
-            .agent
-            .post(&url)
-            .send(form)
-            .map_err(|_| TelegramApiError::Transport)?;
-        let response: ApiResponse<serde_json::Value> = response
-            .body_mut()
-            .read_json()
-            .map_err(|_| TelegramApiError::InvalidResponse)?;
+        let mut response =
+            self.agent.post(&url).send(form).map_err(|_| {
+                TelegramApiError::Transport("sendDocument request failed".to_owned())
+            })?;
+        let response: ApiResponse<serde_json::Value> =
+            response.body_mut().read_json().map_err(|_| {
+                TelegramApiError::InvalidResponse("sendDocument body is not JSON".to_owned())
+            })?;
         response.result().map(|_| ())
     }
 
@@ -349,11 +353,11 @@ impl TelegramApi {
             .agent
             .post(&url)
             .send_json(parameters)
-            .map_err(|_| TelegramApiError::Transport)?;
+            .map_err(|_| TelegramApiError::Transport(format!("{method} request failed")))?;
         let response: ApiResponse<T> = response
             .body_mut()
             .read_json()
-            .map_err(|_| TelegramApiError::InvalidResponse)?;
+            .map_err(|_| TelegramApiError::InvalidResponse(format!("{method} body is not JSON")))?;
         response.result()
     }
 
@@ -365,7 +369,9 @@ impl TelegramApi {
 impl<T> ApiResponse<T> {
     fn result(self) -> Result<T, TelegramApiError> {
         if self.ok {
-            self.result.ok_or(TelegramApiError::InvalidResponse)
+            self.result.ok_or_else(|| {
+                TelegramApiError::InvalidResponse("successful response omitted result".to_owned())
+            })
         } else {
             Err(TelegramApiError::Rejected {
                 code: self.error_code.unwrap_or(0),
@@ -375,26 +381,4 @@ impl<T> ApiResponse<T> {
             })
         }
     }
-}
-
-fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("download path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let temporary: PathBuf = parent.join(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(temporary, path)
 }

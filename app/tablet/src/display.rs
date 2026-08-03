@@ -82,12 +82,18 @@ impl QuillDisplay {
         if image.width() != self.width || image.height() != self.height {
             return Err(io::Error::other("image and display geometry differ"));
         }
-        let x_end = (rectangle.x + rectangle.width).min(self.width);
-        let y_end = (rectangle.y + rectangle.height).min(self.height);
+        let x_end = rectangle.x.saturating_add(rectangle.width).min(self.width);
+        let y_end = rectangle
+            .y
+            .saturating_add(rectangle.height)
+            .min(self.height);
         if rectangle.x >= x_end || rectangle.y >= y_end {
             return Ok(());
         }
-        let _pixel_access = self.pixel_access.write().unwrap();
+        let _pixel_access = self
+            .pixel_access
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let source_stride = self.width * 4;
         let row_bytes = (x_end - rectangle.x) * 4;
         let destination = unsafe {
@@ -108,7 +114,10 @@ impl QuillDisplay {
     }
 
     pub fn copy_snapshot(&self) -> DisplaySnapshot {
-        let _pixel_access = self.pixel_access.read().unwrap();
+        let _pixel_access = self
+            .pixel_access
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let source =
             unsafe { std::slice::from_raw_parts(self.pixels.as_ptr(), self.stride * self.height) };
         let row_bytes = self.width * 4;

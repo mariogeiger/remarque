@@ -1,7 +1,8 @@
+use crate::atomic_file::write_bytes_atomically;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::io;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -85,7 +86,25 @@ impl DocumentExchange {
     pub fn submit(&self, request: &DocumentRequest) -> io::Result<()> {
         self.prepare()?;
         let path = self.request_path(request.id);
-        if path.exists() || self.response_path(request.id).exists() {
+        if path.exists() {
+            let existing: DocumentRequest = read_json(&path)?;
+            if existing != *request {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "request ID is already assigned to a different operation",
+                ));
+            }
+            return Ok(());
+        }
+        let response_path = self.response_path(request.id);
+        if response_path.exists() {
+            let response: DocumentResponse = read_json(&response_path)?;
+            if response.request_id != request.id {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "response file contains the wrong request ID",
+                ));
+            }
             return Ok(());
         }
         write_json_atomically(&path, request)
@@ -93,19 +112,27 @@ impl DocumentExchange {
 
     pub fn oldest_pending(&self) -> io::Result<Option<PendingDocumentRequest>> {
         self.prepare()?;
-        let mut paths = fs::read_dir(self.request_directory())?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension == "json")
-            })
-            .collect::<Vec<_>>();
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(self.request_directory())? {
+            let path = entry?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                paths.push(path);
+            }
+        }
         paths.sort();
         let Some(path) = paths.into_iter().next() else {
             return Ok(None);
         };
-        let request = read_json(&path)?;
+        let request: DocumentRequest = read_json(&path)?;
+        if path != self.request_path(request.id) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "request file name does not match its request ID",
+            ));
+        }
         Ok(Some(PendingDocumentRequest { path, request }))
     }
 
@@ -127,7 +154,13 @@ impl DocumentExchange {
         if !path.exists() {
             return Ok(None);
         }
-        let response = read_json(&path)?;
+        let response: DocumentResponse = read_json(&path)?;
+        if response.request_id != request_id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response file contains the wrong request ID",
+            ));
+        }
         fs::remove_file(path)?;
         Ok(Some(response))
     }
@@ -156,27 +189,8 @@ impl DocumentExchange {
 }
 
 pub fn write_json_atomically(path: &Path, value: &impl Serialize) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("atomic file has no parent directory"))?;
-    fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
     let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)?;
-    File::open(parent)?.sync_all()
+    write_bytes_atomically(path, &bytes)
 }
 
 pub fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> io::Result<T> {
@@ -237,6 +251,28 @@ mod tests {
         exchange.submit(&request).unwrap();
         exchange.submit(&request).unwrap();
         assert_eq!(exchange.oldest_pending().unwrap().unwrap().request, request);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn duplicate_request_id_cannot_change_the_operation() {
+        let root = temporary_directory("conflicting-duplicate");
+        let exchange = DocumentExchange::new(&root);
+        exchange
+            .submit(&DocumentRequest {
+                id: 9,
+                kind: DocumentRequestKind::ListDocuments,
+            })
+            .unwrap();
+        let error = exchange
+            .submit(&DocumentRequest {
+                id: 9,
+                kind: DocumentRequestKind::OpenDocument {
+                    document_id: "notebook-1".to_owned(),
+                },
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         let _ = fs::remove_dir_all(root);
     }
 }

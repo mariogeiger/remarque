@@ -1,7 +1,9 @@
+mod atomic_file;
 mod content_id;
 mod exchange;
 mod write_pdf;
 
+pub use atomic_file::write_bytes_atomically;
 pub use content_id::pdf_content_id;
 pub use exchange::{
     DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse, DocumentResponseKind,

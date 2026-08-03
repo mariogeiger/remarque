@@ -1,8 +1,8 @@
+use crate::atomic_file::write_file_atomically;
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 pub struct RasterPdfPage<'a> {
@@ -47,7 +47,7 @@ pub fn write_bgra_pages_as_pdf(path: &Path, pages: &[RasterPdfPage<'_>]) -> io::
     for page in pages {
         validate_page(page)?;
     }
-    write_pdf_atomically(path, |file| {
+    write_file_atomically(path, |file| {
         write_pdf(file, pages.len(), |index| encode_page(&pages[index]))
     })
 }
@@ -63,7 +63,7 @@ pub fn write_generated_bgra_pages_as_pdf(
             "a PDF must contain at least one page",
         ));
     }
-    write_pdf_atomically(path, |file| {
+    write_file_atomically(path, |file| {
         write_pdf(file, page_count, |index| {
             let page = generate_page(index)?;
             encode_page(&RasterPdfPage {
@@ -77,7 +77,7 @@ pub fn write_generated_bgra_pages_as_pdf(
 }
 
 fn write_pdf(
-    file: File,
+    file: &mut File,
     page_count: usize,
     mut encode_page: impl FnMut(usize) -> io::Result<EncodedPdfPage>,
 ) -> io::Result<()> {
@@ -117,11 +117,11 @@ fn write_pdf(
         "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
         object_count + 1
     )?;
-    pdf.finish()
+    pdf.flush()
 }
 
-fn append_page(
-    pdf: &mut CountingWriter<File>,
+fn append_page<W: Write>(
+    pdf: &mut CountingWriter<W>,
     offsets: &mut Vec<u64>,
     index: usize,
     page: EncodedPdfPage,
@@ -230,8 +230,8 @@ fn pdf_number(value: f64) -> String {
         .to_owned()
 }
 
-fn append_object(
-    pdf: &mut CountingWriter<File>,
+fn append_object<W: Write>(
+    pdf: &mut CountingWriter<W>,
     offsets: &mut Vec<u64>,
     number: usize,
     body: &[u8],
@@ -257,12 +257,6 @@ impl<W> CountingWriter<W> {
     }
 }
 
-impl CountingWriter<File> {
-    fn finish(self) -> io::Result<()> {
-        self.inner.sync_all()
-    }
-}
-
 impl<W: Write> Write for CountingWriter<W> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         let written = self.inner.write(buffer)?;
@@ -275,34 +269,10 @@ impl<W: Write> Write for CountingWriter<W> {
     }
 }
 
-fn write_pdf_atomically(
-    path: &Path,
-    write_pdf: impl FnOnce(File) -> io::Result<()>,
-) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("PDF path has no parent directory"))?;
-    fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)?;
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    write_pdf(file)?;
-    fs::rename(&temporary, path)?;
-    File::open(parent)?.sync_all()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn test_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(

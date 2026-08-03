@@ -8,10 +8,13 @@ and returns cleanly to Xochitl through the library's explicit Quit action.
 - `input` converts Linux marker and touch events into typed frames.
 - `filter_touch_sequences` rejects palm and excess-contact sequences.
 - `touch_tap` recognizes stationary finger taps on the library and toolbar.
+- `touch_gesture` makes taps, page swipes, and pinches mutually exclusive.
 - `document_library` owns documents, ordered pages, selection, and persistence.
 - `notebook` owns the active interaction, tools, erasure, and view transform.
 - `pdfium` renders immutable PDF pages into notebook backgrounds.
 - `page` represents geometry, strokes, and an optional PDF background.
+- `render_page_view` maps page backgrounds and strokes through the view
+  transform.
 - `document_requests` applies durable import, list, open, and export requests.
 - `edge_page_swipe` recognizes deliberate one-finger page turns from the left
   or right screen edge.

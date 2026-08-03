@@ -24,7 +24,9 @@ pub(crate) fn draw_text(
     rgb: [u8; 3],
 ) -> usize {
     cache_glyphs(text, pixel_size);
-    let glyphs = glyphs().lock().unwrap();
+    let glyphs = glyphs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut pen_x = x as f32;
     let maximum_x = x.saturating_add(max_width) as f32;
     let mut previous = None;
@@ -62,7 +64,9 @@ pub(crate) fn draw_text(
 }
 
 fn cache_glyphs(text: &str, pixel_size: u16) {
-    let mut glyphs = glyphs().lock().unwrap();
+    let mut glyphs = glyphs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for character in text.chars() {
         glyphs.entry((character, pixel_size)).or_insert_with(|| {
             let (metrics, coverage) = font().rasterize(character, pixel_size as f32);

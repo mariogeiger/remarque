@@ -58,7 +58,6 @@ fn main() -> io::Result<()> {
     let mut touch = TouchDevice::open(notebook.width(), notebook.height())?;
 
     while !stop.load(Ordering::Relaxed) {
-        apply_oldest_document_request(&mut notebook, &exchange)?;
         poll_inputs(pen.raw_fd(), touch.raw_fd())?;
         for frame in pen.drain()? {
             if notebook.apply_pen_frame(frame)? {
@@ -70,6 +69,7 @@ fn main() -> io::Result<()> {
                 return Ok(());
             }
         }
+        apply_oldest_document_request(&mut notebook, &exchange)?;
     }
     Ok(())
 }

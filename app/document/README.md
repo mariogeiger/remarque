@@ -12,6 +12,11 @@ Requests and responses are atomically renamed into a mailbox directory. A
 request is removed only after its response is durable, so restarting either
 process cannot silently lose an operation.
 
+The crate's atomic-file primitive also backs tablet state, Telegram downloads,
+and PDF output. Each write uses a unique mode-`0600` temporary file, syncs its
+contents, renames it over the destination, syncs the directory, and removes the
+temporary file if generation fails.
+
 Export is independent of background source: the same operation flattens
 strokes over white pages and rendered PDF pages. Whole-document writing
 generates and compresses one raster page at a time, so memory use does not grow

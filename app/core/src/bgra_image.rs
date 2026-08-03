@@ -24,8 +24,14 @@ impl PixelRectangle {
     }
 
     pub fn include(self, other: Self) -> Self {
-        let right = (self.x + self.width).max(other.x + other.width);
-        let bottom = (self.y + self.height).max(other.y + other.height);
+        let right = self
+            .x
+            .saturating_add(self.width)
+            .max(other.x.saturating_add(other.width));
+        let bottom = self
+            .y
+            .saturating_add(self.height)
+            .max(other.y.saturating_add(other.height));
         let x = self.x.min(other.x);
         let y = self.y.min(other.y);
         Self {
@@ -43,7 +49,10 @@ impl BgraImage {
         height: usize,
         pixels: Vec<u8>,
     ) -> Result<Self, &'static str> {
-        if pixels.len() != width * height * 4 {
+        let expected_bytes = width
+            .checked_mul(height)
+            .and_then(|pixel_count| pixel_count.checked_mul(4));
+        if expected_bytes != Some(pixels.len()) {
             return Err("BGRA byte count does not match the image dimensions");
         }
         Ok(Self {
@@ -54,7 +63,11 @@ impl BgraImage {
     }
 
     pub fn filled(width: usize, height: usize, rgb: [u8; 3]) -> Self {
-        let mut pixels = vec![0; width * height * 4];
+        let byte_count = width
+            .checked_mul(height)
+            .and_then(|pixel_count| pixel_count.checked_mul(4))
+            .expect("BGRA image dimensions overflow");
+        let mut pixels = vec![0; byte_count];
         for pixel in pixels.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[rgb[2], rgb[1], rgb[0], 0xff]);
         }
@@ -94,8 +107,8 @@ impl BgraImage {
         height: usize,
         rgb: [u8; 3],
     ) {
-        let right = (x + width).min(self.width);
-        let bottom = (y + height).min(self.height);
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
         for row in y.min(self.height)..bottom {
             for column in x.min(self.width)..right {
                 let offset = (row * self.width + column) * 4;
@@ -117,8 +130,8 @@ impl BgraImage {
             self.fill_rectangle(x, y, width, height, rgb);
             return;
         }
-        let right = (x + width).min(self.width);
-        let bottom = (y + height).min(self.height);
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
         let radius = radius
             .max(0.0)
             .min((right.saturating_sub(x) as f32) * 0.5)
@@ -163,8 +176,8 @@ impl BgraImage {
     }
 
     pub fn copy_rectangle(&self, x: usize, y: usize, width: usize, height: usize) -> Vec<u8> {
-        let right = (x + width).min(self.width);
-        let bottom = (y + height).min(self.height);
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
         let mut copy = Vec::with_capacity((right - x.min(right)) * (bottom - y.min(bottom)) * 4);
         for row in y.min(bottom)..bottom {
             let start = (row * self.width + x.min(right)) * 4;
@@ -218,8 +231,8 @@ impl BgraImage {
         height: usize,
         copy: &[u8],
     ) {
-        let right = (x + width).min(self.width);
-        let bottom = (y + height).min(self.height);
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
         let row_bytes = (right - x.min(right)) * 4;
         assert_eq!(copy.len(), row_bytes * (bottom - y.min(bottom)));
         for (source_row, row) in (y.min(bottom)..bottom).enumerate() {
@@ -293,6 +306,15 @@ mod tests {
     #[test]
     fn rejects_bgra_with_the_wrong_byte_count() {
         assert!(BgraImage::try_from_bgra(2, 2, vec![0; 15]).is_err());
+        assert!(BgraImage::try_from_bgra(usize::MAX, 2, Vec::new()).is_err());
+    }
+
+    #[test]
+    fn rectangle_operations_clip_overflowing_coordinates() {
+        let mut image = BgraImage::filled(2, 2, [255, 255, 255]);
+        image.fill_rectangle(usize::MAX, 0, 2, 2, [0, 0, 0]);
+        assert!(image.copy_rectangle(usize::MAX, 0, 2, 2).is_empty());
+        assert_eq!(image.pixel(0, 0), [255, 255, 255, 255]);
     }
 
     #[test]
