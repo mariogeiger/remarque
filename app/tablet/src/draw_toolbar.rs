@@ -2,16 +2,12 @@ use crate::bgra_image::BgraImage;
 use crate::color::Color;
 use crate::draw_text::draw_text;
 use crate::fineliner::FinelinerThickness;
-use crate::notebook::DrawingTool;
-use crate::quit_label;
-use crate::render_fineliner::{FinelinerRasterPoint, render_fineliner_raster_points};
 use crate::toolbar;
 
 pub(crate) const HEIGHT: usize = 112;
 
 pub(crate) fn draw_toolbar(
     image: &mut BgraImage,
-    selected_tool: DrawingTool,
     thickness: FinelinerThickness,
     color: Color,
     page_number: u32,
@@ -39,30 +35,17 @@ pub(crate) fn draw_toolbar(
         24.0,
         PANEL,
     );
-    draw_toolbar_button(
-        image,
-        toolbar::PEN_BUTTON_X,
-        toolbar::TOOL_BUTTON_WIDTH,
-        selected_tool == DrawingTool::Fineliner,
-        SELECTED,
-        PANEL,
-    );
-    draw_toolbar_button(
-        image,
-        toolbar::ERASER_BUTTON_X,
-        toolbar::TOOL_BUTTON_WIDTH,
-        selected_tool == DrawingTool::Eraser,
-        SELECTED,
-        PANEL,
-    );
-    draw_pen_icon(image, toolbar::PEN_BUTTON_X);
-    draw_eraser_icon(image, toolbar::ERASER_BUTTON_X);
-    draw_toolbar_separator(image, 320);
+    draw_library_button(image, PANEL);
+    draw_toolbar_separator(image, 184);
 
     for (x, preset) in [
         (toolbar::THIN_BUTTON_X, FinelinerThickness::Thin),
         (toolbar::MEDIUM_BUTTON_X, FinelinerThickness::Medium),
         (toolbar::THICK_BUTTON_X, FinelinerThickness::Thick),
+        (
+            toolbar::EXTRA_THICK_BUTTON_X,
+            FinelinerThickness::ExtraThick,
+        ),
     ] {
         draw_toolbar_button(
             image,
@@ -76,6 +59,7 @@ pub(crate) fn draw_toolbar(
             FinelinerThickness::Thin => 10,
             FinelinerThickness::Medium => 18,
             FinelinerThickness::Thick => 26,
+            FinelinerThickness::ExtraThick => 34,
         };
         image.fill_rounded_rectangle(
             x + (toolbar::PRESET_BUTTON_WIDTH - diameter) / 2,
@@ -86,7 +70,7 @@ pub(crate) fn draw_toolbar(
             [0x25, 0x25, 0x24],
         );
     }
-    draw_toolbar_separator(image, 640);
+    draw_toolbar_separator(image, 592);
     for (x, swatch) in [
         (toolbar::BLACK_BUTTON_X, Color::Black),
         (toolbar::GRAY_BUTTON_X, Color::Gray),
@@ -95,27 +79,17 @@ pub(crate) fn draw_toolbar(
     ] {
         draw_color_swatch(image, x, swatch, swatch == color, SELECTED, PANEL);
     }
-    draw_toolbar_separator(image, 1008);
+    draw_toolbar_separator(image, 960);
     draw_text(
         image,
-        1028,
+        toolbar::PAGE_INDICATOR_X,
         72,
         &format!("{page_number}/{page_count}"),
         24,
         78,
         [0x55, 0x55, 0x52],
     );
-    draw_library_button(image, PANEL);
     draw_add_page_button(image, PANEL);
-    image.fill_rounded_rectangle(
-        toolbar::QUIT_BUTTON_X,
-        toolbar::BUTTON_Y,
-        toolbar::QUIT_BUTTON_WIDTH,
-        toolbar::BUTTON_HEIGHT,
-        18.0,
-        [0xf3, 0xdc, 0xda],
-    );
-    draw_quit_label(image);
 }
 
 fn draw_library_button(image: &mut BgraImage, panel_rgb: [u8; 3]) {
@@ -171,30 +145,6 @@ fn draw_toolbar_separator(image: &mut BgraImage, x: usize) {
     image.fill_rounded_rectangle(x, 36, 2, 48, 1.0, [0xd2, 0xd0, 0xca]);
 }
 
-fn draw_pen_icon(image: &mut BgraImage, button_x: usize) {
-    let point = |x: f32, y: f32| FinelinerRasterPoint { x, y, width: 6.0 };
-    render_fineliner_raster_points(
-        image,
-        &[
-            point(button_x as f32 + 38.0, 74.0),
-            point(button_x as f32 + 82.0, 46.0),
-        ],
-        Color::Black,
-    );
-}
-
-fn draw_eraser_icon(image: &mut BgraImage, button_x: usize) {
-    let point = |x: f32, y: f32| FinelinerRasterPoint { x, y, width: 24.0 };
-    render_fineliner_raster_points(
-        image,
-        &[
-            point(button_x as f32 + 42.0, 72.0),
-            point(button_x as f32 + 78.0, 48.0),
-        ],
-        Color::Gray,
-    );
-}
-
 fn draw_color_swatch(
     image: &mut BgraImage,
     x: usize,
@@ -212,27 +162,4 @@ fn draw_color_swatch(
         panel_rgb,
     );
     image.fill_rounded_rectangle(x + 14, 46, 28, 28, 14.0, color.rgb());
-}
-
-fn draw_quit_label(image: &mut BgraImage) {
-    const TEXT_RGB: [u8; 3] = [0x18, 0x18, 0x18];
-    const RASTER_TEXT_DARKNESS: u16 = 255 - 0x18;
-    let mut pixel_index = 0;
-    for &(run_length, raster_darkness) in quit_label::ALPHA_RUNS {
-        let coverage = ((u16::from(raster_darkness) * 255 + RASTER_TEXT_DARKNESS / 2)
-            / RASTER_TEXT_DARKNESS)
-            .min(255) as u8;
-        for _ in 0..run_length {
-            if coverage != 0 {
-                image.blend_rgb_coverage(
-                    toolbar::QUIT_BUTTON_X + pixel_index % quit_label::WIDTH,
-                    toolbar::BUTTON_Y + pixel_index / quit_label::WIDTH,
-                    TEXT_RGB,
-                    coverage,
-                );
-            }
-            pixel_index += 1;
-        }
-    }
-    debug_assert_eq!(pixel_index, quit_label::WIDTH * quit_label::HEIGHT);
 }

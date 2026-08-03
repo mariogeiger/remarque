@@ -74,6 +74,10 @@ screen width; tall pages pan vertically, while a short or landscape page leaves
 the out-of-page area gray. Two fingers pan and zoom within the page. A
 one-finger inward swipe from the left or right edge changes page.
 
+Stationary one-finger taps operate the library and toolbar through the same
+palm-rejection state machine. Tool choice does not add UI state: the stylus tip
+is the fineliner and the opposite end is the eraser.
+
 The tablet library is available directly on screen. The Telegram surface keeps
 only two commands: `/library` opens a document remotely and `/export` chooses a
 current-page or whole-document export. Sending a PDF imports and opens it.

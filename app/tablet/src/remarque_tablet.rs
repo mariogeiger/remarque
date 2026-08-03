@@ -66,7 +66,9 @@ fn main() -> io::Result<()> {
             }
         }
         for frame in touch.drain()? {
-            notebook.apply_touch_frame(frame)?;
+            if notebook.apply_touch_frame(frame)? {
+                return Ok(());
+            }
         }
     }
     Ok(())

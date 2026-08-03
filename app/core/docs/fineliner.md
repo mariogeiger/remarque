@@ -18,6 +18,9 @@ The first sample is used as both previous samples. This yields zero distance
 and direction for the first stored point. Fineliner pressure remains metadata;
 it does not alter width.
 
+Remarque additionally exposes an extra-thick width `32` in quarter pixels.
+That fourth preset is an original product feature, not a native-parity claim.
+
 The stored width is not yet the exact live raster width. At display scale `z`,
 the native antialiased renderer uses
 

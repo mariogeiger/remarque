@@ -2,6 +2,22 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.6.0 - 2026-08-03
+
+### Added
+
+- Finger taps for the library and toolbar, guarded by the same palm and stylus
+  proximity rejection used by page gestures.
+- An extra-thick 8-pixel fineliner preset alongside the three native widths.
+
+### Changed
+
+- The toolbar now starts with the library, followed by four widths, colors,
+  the page indicator, and page insertion.
+- Tool-selection buttons are gone: the stylus tip always draws and its opposite
+  end always erases.
+- Quit now appears only on the library home screen.
+
 ## 0.5.1 - 2026-08-03
 
 ### Changed

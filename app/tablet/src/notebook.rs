@@ -21,6 +21,7 @@ use crate::render_fineliner::{
 };
 use crate::stroke::{PenSample, Stroke, StrokePoint};
 use crate::toolbar::{ToolbarAction, map_x_to_action};
+use crate::touch_tap::{TapSurface, TouchTap};
 use crate::view_transform::{Bounds, Point, Size, ViewTransform, centroid, two_finger_scale};
 use remarque_document::{DocumentSummary, ExportScope};
 use std::io;
@@ -29,12 +30,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const PINCH_RENDER_INTERVAL: Duration = Duration::from_millis(16);
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DrawingTool {
-    Fineliner,
-    Eraser,
-}
 
 enum ActiveStroke {
     Fineliner {
@@ -74,7 +69,6 @@ pub struct Notebook {
     library: DocumentLibrary,
     library_screen_index: usize,
     state_path: PathBuf,
-    selected_tool: DrawingTool,
     fineliner_thickness: FinelinerThickness,
     eraser_thickness: EraserThickness,
     color: Color,
@@ -84,6 +78,8 @@ pub struct Notebook {
     reject_palm_contact_sequences: RejectPalmContactSequences,
     previous_pinch: Option<[Point; 2]>,
     edge_swipe: Option<EdgeSwipe>,
+    touch_tap: Option<TouchTap>,
+    ignore_touch_taps_until_release: bool,
     last_pinch_render: Instant,
 }
 
@@ -99,7 +95,6 @@ impl Notebook {
             library: DocumentLibrary::with_default_notebook(),
             library_screen_index: 0,
             state_path,
-            selected_tool: DrawingTool::Fineliner,
             fineliner_thickness: FinelinerThickness::Thin,
             eraser_thickness: EraserThickness::Thin,
             color: Color::Black,
@@ -115,6 +110,8 @@ impl Notebook {
             reject_palm_contact_sequences: RejectPalmContactSequences::default(),
             previous_pinch: None,
             edge_swipe: None,
+            touch_tap: None,
+            ignore_touch_taps_until_release: false,
             last_pinch_render: Instant::now(),
         };
         if let Err(error) = notebook.restore_state() {
@@ -248,19 +245,14 @@ impl Notebook {
                 self.active_stroke = Some(ActiveStroke::OutsidePage);
                 return Ok(false);
             }
-            let selected_tool = if frame.tool == PenTool::EraserEnd {
-                DrawingTool::Eraser
-            } else {
-                self.selected_tool
-            };
-            self.active_stroke = Some(match selected_tool {
-                DrawingTool::Fineliner => ActiveStroke::Fineliner {
+            self.active_stroke = Some(match frame.tool {
+                PenTool::Tip => ActiveStroke::Fineliner {
                     builder: FinelinerStrokeBuilder::new(self.fineliner_thickness),
                     color: self.color,
                     rasterizer: FinelinerRasterizer::new(self.color),
                     dirty: None,
                 },
-                DrawingTool::Eraser => ActiveStroke::Eraser {
+                PenTool::EraserEnd => ActiveStroke::Eraser {
                     centerline: Vec::new(),
                     cursor: None,
                 },
@@ -359,22 +351,36 @@ impl Notebook {
         Ok(false)
     }
 
-    pub fn apply_touch_frame(&mut self, frame: TouchFrame) -> io::Result<()> {
-        if self.open_document.is_none() {
-            return Ok(());
-        }
+    pub fn apply_touch_frame(&mut self, frame: TouchFrame) -> io::Result<bool> {
         let Some(points) = self
             .reject_palm_contact_sequences
             .accept_at_most_two_finger_points(&frame, self.pen_proximity)
         else {
             self.edge_swipe = None;
-            return self.finish_pinch();
+            self.touch_tap = None;
+            self.ignore_touch_taps_until_release = true;
+            self.finish_pinch()?;
+            return Ok(false);
         };
         match points {
             [] => {
+                if self.ignore_touch_taps_until_release {
+                    self.ignore_touch_taps_until_release = false;
+                    self.edge_swipe = None;
+                    self.touch_tap = None;
+                    self.finish_pinch()?;
+                    return Ok(false);
+                }
                 if self.previous_pinch.is_some() {
                     self.edge_swipe = None;
-                    return self.finish_pinch();
+                    self.touch_tap = None;
+                    self.finish_pinch()?;
+                    return Ok(false);
+                }
+                if let Some(tap) = self.touch_tap.take()
+                    && let Some((surface, position)) = tap.finish()
+                {
+                    return self.apply_touch_tap(surface, position);
                 }
                 if let Some(swipe) = self.edge_swipe.take()
                     && let Some(delta) =
@@ -384,11 +390,18 @@ impl Notebook {
                 }
             }
             [point] => {
-                if self.previous_pinch.is_some() {
-                    return Ok(());
+                if self.previous_pinch.is_some() || self.ignore_touch_taps_until_release {
+                    return Ok(false);
                 }
-                if let Some(swipe) = &mut self.edge_swipe {
+                if let Some(tap) = &mut self.touch_tap {
+                    tap.move_to(point.position);
+                } else if let Some(swipe) = &mut self.edge_swipe {
                     swipe.current = point.position;
+                } else if self.open_document.is_none() {
+                    self.touch_tap =
+                        Some(TouchTap::start(TapSurface::DocumentLibrary, point.position));
+                } else if point.position.y < TOOLBAR_HEIGHT as f64 {
+                    self.touch_tap = Some(TouchTap::start(TapSurface::Toolbar, point.position));
                 } else if self
                     .library
                     .document_summary(self.open_document_id()?)?
@@ -405,11 +418,36 @@ impl Notebook {
             }
             [first, second] => {
                 self.edge_swipe = None;
-                self.apply_two_finger_positions([first.position, second.position])?;
+                self.touch_tap = None;
+                self.ignore_touch_taps_until_release = true;
+                if self.open_document.is_some() {
+                    self.apply_two_finger_positions([first.position, second.position])?;
+                }
             }
             _ => unreachable!("touch filter accepts at most two fingers"),
         }
-        Ok(())
+        Ok(false)
+    }
+
+    fn apply_touch_tap(&mut self, surface: TapSurface, position: Point) -> io::Result<bool> {
+        match surface {
+            TapSurface::DocumentLibrary if self.open_document.is_none() => {
+                let documents = self.library.summaries();
+                let action =
+                    document_library_action_at(position, &documents, self.library_screen_index);
+                self.apply_document_library_action(action)
+            }
+            TapSurface::Toolbar
+                if self.open_document.is_some() && position.y < TOOLBAR_HEIGHT as f64 =>
+            {
+                let exit = self.apply_toolbar_action(map_x_to_action(position.x as usize))?;
+                if self.open_document.is_some() {
+                    self.redraw_toolbar()?;
+                }
+                Ok(exit)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn apply_two_finger_positions(&mut self, current: [Point; 2]) -> io::Result<()> {
@@ -518,7 +556,6 @@ impl Notebook {
         let document = self.library.document_summary(self.open_document_id()?)?;
         draw_toolbar(
             &mut self.image,
-            self.selected_tool,
             self.fineliner_thickness,
             self.color,
             document.page_number,
@@ -649,7 +686,6 @@ impl Notebook {
         let document = self.library.document_summary(self.open_document_id()?)?;
         draw_toolbar(
             &mut self.image,
-            self.selected_tool,
             self.fineliner_thickness,
             self.color,
             document.page_number,
@@ -668,8 +704,6 @@ impl Notebook {
 
     fn apply_toolbar_action(&mut self, action: ToolbarAction) -> io::Result<bool> {
         match action {
-            ToolbarAction::SelectFineliner => self.selected_tool = DrawingTool::Fineliner,
-            ToolbarAction::SelectEraser => self.selected_tool = DrawingTool::Eraser,
             ToolbarAction::SelectThickness(thickness) => self.fineliner_thickness = thickness,
             ToolbarAction::SelectColor(color) => self.color = color,
             ToolbarAction::ShowLibrary => {
@@ -678,7 +712,6 @@ impl Notebook {
             ToolbarAction::InsertBlankPage => {
                 self.insert_blank_page()?;
             }
-            ToolbarAction::ExitApplication => return Ok(true),
             ToolbarAction::None => {}
         }
         Ok(false)

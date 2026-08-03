@@ -1,12 +1,13 @@
 # Remarque tablet application
 
 This crate runs the reconstructed notebook directly on a reMarkable Paper Pro
-and returns cleanly to Xochitl through an explicit Quit action.
+and returns cleanly to Xochitl through the library's explicit Quit action.
 
 ## Boundaries
 
 - `input` converts Linux marker and touch events into typed frames.
 - `filter_touch_sequences` rejects palm and excess-contact sequences.
+- `touch_tap` recognizes stationary finger taps on the library and toolbar.
 - `document_library` owns documents, ordered pages, selection, and persistence.
 - `notebook` owns the active interaction, tools, erasure, and view transform.
 - `pdfium` renders immutable PDF pages into notebook backgrounds.
@@ -33,6 +34,10 @@ current page in either kind of document.
 The library is the home screen. Opening a document creates only a runtime view;
 returning home drops that view, and startup never restores or highlights a
 last-opened document. Per-document pages and annotations remain persistent.
+
+Both the library and toolbar accept the stylus or a finger. Finger taps pass
+through palm rejection and are cancelled when they turn into a drag or a
+two-finger gesture. The stylus tip always draws; its opposite end always erases.
 
 The stream listens on port `7432` without authentication. Expose it only on a
 trusted local network or through a private network transport.

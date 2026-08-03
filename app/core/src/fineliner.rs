@@ -8,6 +8,7 @@ pub enum FinelinerThickness {
     Thin,
     Medium,
     Thick,
+    ExtraThick,
 }
 
 impl FinelinerThickness {
@@ -16,6 +17,7 @@ impl FinelinerThickness {
             Self::Thin => 2.0,
             Self::Medium => 4.0,
             Self::Thick => 6.0,
+            Self::ExtraThick => 8.0,
         }
     }
 
@@ -95,10 +97,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reproduces_recovered_width_presets() {
+    fn defines_native_and_extra_width_presets() {
         assert_eq!(FinelinerThickness::Thin.quarter_pixels(), 8);
         assert_eq!(FinelinerThickness::Medium.quarter_pixels(), 16);
         assert_eq!(FinelinerThickness::Thick.quarter_pixels(), 24);
+        assert_eq!(FinelinerThickness::ExtraThick.quarter_pixels(), 32);
     }
 
     #[test]

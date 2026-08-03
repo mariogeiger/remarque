@@ -29,12 +29,12 @@ mod page_coordinates;
 #[cfg(feature = "takeover")]
 mod pdfium;
 #[cfg(feature = "takeover")]
-mod quit_label;
-#[cfg(feature = "takeover")]
 pub mod screen_stream;
 #[cfg(any(feature = "takeover", test))]
 mod screen_stream_protocol;
 pub mod toolbar;
+#[cfg(any(feature = "takeover", test))]
+mod touch_tap;
 pub use remarque_core::bgra_image;
 pub use remarque_core::color;
 pub use remarque_core::erase_strokes;
