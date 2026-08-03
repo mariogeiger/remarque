@@ -52,19 +52,10 @@ pub struct DocumentResponse {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum DocumentResponseKind {
-    Opened {
-        document: DocumentSummary,
-    },
-    Exported {
-        path: PathBuf,
-    },
-    Documents {
-        active_document_id: String,
-        documents: Vec<DocumentSummary>,
-    },
-    Failed {
-        message: String,
-    },
+    Opened { document: DocumentSummary },
+    Exported { path: PathBuf },
+    Documents { documents: Vec<DocumentSummary> },
+    Failed { message: String },
 }
 
 pub struct PendingDocumentRequest {
@@ -221,7 +212,6 @@ mod tests {
             .complete(
                 pending,
                 DocumentResponseKind::Documents {
-                    active_document_id: "notebook-1".to_owned(),
                     documents: Vec::new(),
                 },
             )
@@ -230,7 +220,6 @@ mod tests {
         assert_eq!(
             exchange.take_response(42).unwrap().unwrap().kind,
             DocumentResponseKind::Documents {
-                active_document_id: "notebook-1".to_owned(),
                 documents: Vec::new(),
             }
         );

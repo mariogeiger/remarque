@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 const FIRST_NOTEBOOK_ID: &str = "notebook-1";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -35,7 +35,6 @@ struct LibraryDocument {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct DocumentLibrary {
     format_version: u32,
-    active_document_id: String,
     next_notebook_number: u32,
     documents: Vec<LibraryDocument>,
 }
@@ -44,7 +43,6 @@ impl DocumentLibrary {
     pub fn with_default_notebook() -> Self {
         Self {
             format_version: FORMAT_VERSION,
-            active_document_id: FIRST_NOTEBOOK_ID.to_owned(),
             next_notebook_number: 2,
             documents: vec![LibraryDocument {
                 document_id: FIRST_NOTEBOOK_ID.to_owned(),
@@ -55,30 +53,31 @@ impl DocumentLibrary {
         }
     }
 
-    pub fn active_page(&self) -> &DocumentPage {
-        let document = self.active_document();
-        &document.pages[document.current_page]
+    pub fn page(&self, document_id: &str) -> io::Result<&DocumentPage> {
+        let document = self.document(document_id)?;
+        Ok(&document.pages[document.current_page])
     }
 
-    pub fn store_active_strokes(&mut self, strokes: Vec<Stroke>) {
-        let document = self.active_document_mut();
+    pub fn store_strokes(&mut self, document_id: &str, strokes: Vec<Stroke>) -> io::Result<()> {
+        let document = self.document_mut(document_id)?;
         document.pages[document.current_page].strokes = strokes;
+        Ok(())
     }
 
-    pub fn change_page(&mut self, delta: i32) -> bool {
-        let document = self.active_document_mut();
+    pub fn change_page(&mut self, document_id: &str, delta: i32) -> io::Result<bool> {
+        let document = self.document_mut(document_id)?;
         let current = document.current_page;
         document.current_page =
             (current as i64 + i64::from(delta)).clamp(0, document.pages.len() as i64 - 1) as usize;
-        document.current_page != current
+        Ok(document.current_page != current)
     }
 
-    pub fn insert_blank_page(&mut self) -> DocumentSummary {
-        let document = self.active_document_mut();
+    pub fn insert_blank_page(&mut self, document_id: &str) -> io::Result<DocumentSummary> {
+        let document = self.document_mut(document_id)?;
         let insertion = document.current_page + 1;
         document.pages.insert(insertion, DocumentPage::default());
         document.current_page = insertion;
-        summary(document)
+        Ok(summary(document))
     }
 
     pub fn create_notebook(&mut self) -> DocumentSummary {
@@ -90,7 +89,6 @@ impl DocumentLibrary {
             current_page: 0,
             pages: vec![DocumentPage::default()],
         };
-        self.active_document_id = document.document_id.clone();
         self.documents.push(document);
         summary(self.documents.last().unwrap())
     }
@@ -120,7 +118,6 @@ impl DocumentLibrary {
                 }
             }
             document.title = title;
-            self.active_document_id = document_id;
             return Ok(summary(document));
         }
         let pages = (0..page_count)
@@ -138,50 +135,35 @@ impl DocumentLibrary {
             current_page: 0,
             pages,
         };
-        self.active_document_id = document_id;
         self.documents.push(document);
         Ok(summary(self.documents.last().unwrap()))
     }
 
-    pub fn open_document(&mut self, document_id: &str) -> io::Result<DocumentSummary> {
-        let document = self
-            .documents
-            .iter()
-            .find(|document| document.document_id == document_id)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "document was not found"))?;
-        let result = summary(document);
-        self.active_document_id = document_id.to_owned();
-        Ok(result)
-    }
-
-    pub fn active_summary(&self) -> DocumentSummary {
-        summary(self.active_document())
+    pub fn document_summary(&self, document_id: &str) -> io::Result<DocumentSummary> {
+        self.document(document_id).map(summary)
     }
 
     pub fn summaries(&self) -> Vec<DocumentSummary> {
         self.documents.iter().map(summary).collect()
     }
 
-    pub fn active_document_id(&self) -> &str {
-        &self.active_document_id
+    pub fn pages(&self, document_id: &str) -> io::Result<&[DocumentPage]> {
+        self.document(document_id)
+            .map(|document| document.pages.as_slice())
     }
 
-    pub fn active_pages(&self) -> &[DocumentPage] {
-        &self.active_document().pages
-    }
-
-    fn active_document(&self) -> &LibraryDocument {
+    fn document(&self, document_id: &str) -> io::Result<&LibraryDocument> {
         self.documents
             .iter()
-            .find(|document| document.document_id == self.active_document_id)
-            .expect("validated library has an active document")
+            .find(|document| document.document_id == document_id)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "document was not found"))
     }
 
-    fn active_document_mut(&mut self) -> &mut LibraryDocument {
+    fn document_mut(&mut self, document_id: &str) -> io::Result<&mut LibraryDocument> {
         self.documents
             .iter_mut()
-            .find(|document| document.document_id == self.active_document_id)
-            .expect("validated library has an active document")
+            .find(|document| document.document_id == document_id)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "document was not found"))
     }
 
     fn validate(&self) -> io::Result<()> {
@@ -203,12 +185,6 @@ impl DocumentLibrary {
                     "document library contains an invalid document",
                 ));
             }
-        }
-        if !ids.contains(&self.active_document_id) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "document library has no active document",
-            ));
         }
         Ok(())
     }
@@ -232,6 +208,11 @@ pub(crate) fn restore_document_library(
         .unwrap_or(0) as u32;
     let library = if format_version == FORMAT_VERSION {
         serde_json::from_value(value).map_err(io::Error::other)?
+    } else if format_version == 3 {
+        let mut library: DocumentLibrary =
+            serde_json::from_value(value).map_err(io::Error::other)?;
+        library.format_version = FORMAT_VERSION;
+        library
     } else if format_version < FORMAT_VERSION {
         migrate_legacy_notebook(value, canvas_width, canvas_height, content_top)?
     } else {
@@ -309,19 +290,10 @@ struct LegacyOpenDocument {
     page_count: u32,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum LegacyActivePage {
-    Blank,
-    Pdf,
-}
-
 #[derive(Deserialize)]
 struct LegacyNotebook {
     #[serde(default)]
     format_version: u32,
-    #[serde(default)]
-    active_page: Option<LegacyActivePage>,
     #[serde(default)]
     document: Option<LegacyOpenDocument>,
     #[serde(default)]
@@ -339,10 +311,6 @@ fn migrate_legacy_notebook(
     content_top: usize,
 ) -> io::Result<DocumentLibrary> {
     let legacy: LegacyNotebook = serde_json::from_value(value).map_err(io::Error::other)?;
-    let pdf_is_active = matches!(
-        legacy.active_page.unwrap_or(LegacyActivePage::Pdf),
-        LegacyActivePage::Pdf
-    );
     let mut library = DocumentLibrary::with_default_notebook();
     library.documents[0].pages[0].strokes = legacy.blank_page;
     let Some(document) = legacy.document else {
@@ -387,14 +355,11 @@ fn migrate_legacy_notebook(
         })
         .collect();
     library.documents.push(LibraryDocument {
-        document_id: document_id.clone(),
+        document_id,
         title: document.display_name,
         current_page,
         pages,
     });
-    if pdf_is_active {
-        library.active_document_id = document_id;
-    }
     Ok(library)
 }
 
@@ -426,29 +391,44 @@ mod tests {
     #[test]
     fn every_document_uses_the_same_page_operations() {
         let mut library = DocumentLibrary::with_default_notebook();
-        assert_eq!(library.insert_blank_page().page_count, 2);
-        assert!(library.change_page(-1));
-        assert_eq!(library.active_summary().page_number, 1);
+        assert_eq!(
+            library
+                .insert_blank_page(FIRST_NOTEBOOK_ID)
+                .unwrap()
+                .page_count,
+            2
+        );
+        assert!(library.change_page(FIRST_NOTEBOOK_ID, -1).unwrap());
+        assert_eq!(
+            library
+                .document_summary(FIRST_NOTEBOOK_ID)
+                .unwrap()
+                .page_number,
+            1
+        );
+        let pdf_id = "pdf-0123456789abcdef0123456789abcdef";
         let imported = library
             .import_pdf(
-                "pdf-0123456789abcdef0123456789abcdef".to_owned(),
+                pdf_id.to_owned(),
                 PathBuf::from("source.pdf"),
                 "Source".to_owned(),
                 2,
             )
             .unwrap();
         assert_eq!(imported.page_count, 2);
-        assert_eq!(library.insert_blank_page().page_count, 3);
-        assert!(library.active_page().background.is_none());
-        library.store_active_strokes(Vec::new());
+        assert_eq!(library.insert_blank_page(pdf_id).unwrap().page_count, 3);
+        assert!(library.page(pdf_id).unwrap().background.is_none());
+        library.store_strokes(pdf_id, Vec::new()).unwrap();
         assert_eq!(library.create_notebook().title, "Carnet 2");
         assert_eq!(
-            library.open_document(FIRST_NOTEBOOK_ID).unwrap().page_count,
+            library
+                .document_summary(FIRST_NOTEBOOK_ID)
+                .unwrap()
+                .page_count,
             2
         );
         assert_eq!(library.summaries().len(), 3);
-        assert_eq!(library.active_document_id(), FIRST_NOTEBOOK_ID);
-        assert_eq!(library.active_pages().len(), 2);
+        assert_eq!(library.pages(FIRST_NOTEBOOK_ID).unwrap().len(), 2);
         library.validate().unwrap();
     }
 
@@ -474,12 +454,45 @@ mod tests {
         fs::write(&legacy_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
         let library = restore_document_library(&path, 1620, 2160, 112).unwrap();
         assert_eq!(library.summaries().len(), 2);
-        assert_eq!(library.active_document_id(), FIRST_NOTEBOOK_ID);
         assert_eq!(library.summaries()[1].page_number, 2);
         save_document_library(&path, &library).unwrap();
         let restored = restore_document_library(&path, 1620, 2160, 112).unwrap();
         assert_eq!(restored.format_version, FORMAT_VERSION);
         assert_eq!(restored.summaries().len(), 2);
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn version_three_active_document_is_discarded() {
+        let directory = state_path("version-three").with_extension("");
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("document-library.json");
+        let version_three = serde_json::json!({
+            "format_version": 3,
+            "active_document_id": "notebook-2",
+            "next_notebook_number": 3,
+            "documents": [
+                {
+                    "document_id": "notebook-1",
+                    "title": "Carnet 1",
+                    "current_page": 0,
+                    "pages": [{"background": null, "strokes": []}]
+                },
+                {
+                    "document_id": "notebook-2",
+                    "title": "Carnet 2",
+                    "current_page": 0,
+                    "pages": [{"background": null, "strokes": []}]
+                }
+            ]
+        });
+        fs::write(&path, serde_json::to_vec(&version_three).unwrap()).unwrap();
+        let library = restore_document_library(&path, 1620, 2160, 112).unwrap();
+        save_document_library(&path, &library).unwrap();
+        let saved: serde_json::Value = remarque_document::read_json(&path).unwrap();
+        assert_eq!(saved["format_version"], FORMAT_VERSION);
+        assert!(saved.get("active_document_id").is_none());
         let _ = fs::remove_dir_all(directory);
     }
 }

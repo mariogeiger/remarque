@@ -229,11 +229,8 @@ impl BotRuntime {
             },
             Duration::from_secs(10),
         )?;
-        let (active_document_id, documents) = match response.kind {
-            DocumentResponseKind::Documents {
-                active_document_id,
-                documents,
-            } => (active_document_id, documents),
+        let documents = match response.kind {
+            DocumentResponseKind::Documents { documents } => documents,
             DocumentResponseKind::Failed { message: failure } => {
                 return self.reply(message, &format!("Bibliothèque indisponible : {failure}"));
             }
@@ -246,10 +243,7 @@ impl BotRuntime {
             .iter()
             .map(|document| {
                 vec![TelegramButton {
-                    text: document_button_text(
-                        document,
-                        document.document_id == active_document_id,
-                    ),
+                    text: document_button_text(document),
                     callback_data: format!("open:{}", document.document_id),
                 }]
             })
@@ -461,13 +455,10 @@ fn display_title(file_name: Option<&str>) -> String {
     }
 }
 
-fn document_button_text(document: &DocumentSummary, active: bool) -> String {
+fn document_button_text(document: &DocumentSummary) -> String {
     format!(
-        "{}{} · {}/{}",
-        if active { "✓ " } else { "" },
-        document.title,
-        document.page_number,
-        document.page_count
+        "{} · {}/{}",
+        document.title, document.page_number, document.page_count
     )
 }
 

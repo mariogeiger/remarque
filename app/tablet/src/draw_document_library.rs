@@ -9,11 +9,15 @@ const ROW_WIDTH: usize = 1492;
 const ROW_START_Y: usize = 160;
 const ROW_HEIGHT: usize = 126;
 const ROW_STEP: usize = 140;
+const NEW_NOTEBOOK_X: usize = 1080;
+const NEW_NOTEBOOK_WIDTH: usize = 340;
+const QUIT_X: usize = 1450;
+const QUIT_WIDTH: usize = 130;
 pub(crate) const DOCUMENTS_PER_SCREEN: usize = 13;
 
 pub(crate) enum DocumentLibraryAction {
-    Close,
     CreateNotebook,
+    ExitApplication,
     OpenDocument(String),
     PreviousScreen,
     NextScreen,
@@ -23,14 +27,13 @@ pub(crate) enum DocumentLibraryAction {
 pub(crate) fn draw_document_library(
     image: &mut BgraImage,
     documents: &[DocumentSummary],
-    active_document_id: &str,
     screen_index: usize,
 ) {
     image.fill_rectangle(0, 0, image.width(), image.height(), [0xe8, 0xe7, 0xe2]);
     image.fill_rectangle(0, 0, image.width(), HEADER_HEIGHT, [0xfa, 0xf9, 0xf6]);
-    draw_back_button(image);
-    draw_text(image, 144, 82, "Bibliothèque", 38, 700, [0x25, 0x25, 0x24]);
+    draw_text(image, 64, 82, "Bibliothèque", 38, 700, [0x25, 0x25, 0x24]);
     draw_new_notebook_button(image);
+    draw_quit_button(image);
 
     let first = screen_index * DOCUMENTS_PER_SCREEN;
     for (slot, document) in documents
@@ -39,12 +42,7 @@ pub(crate) fn draw_document_library(
         .take(DOCUMENTS_PER_SCREEN)
         .enumerate()
     {
-        draw_document_row(
-            image,
-            ROW_START_Y + slot * ROW_STEP,
-            document,
-            document.document_id == active_document_id,
-        );
+        draw_document_row(image, ROW_START_Y + slot * ROW_STEP, document);
     }
     draw_screen_navigation(image, documents.len(), screen_index);
 }
@@ -56,10 +54,10 @@ pub(crate) fn document_library_action_at(
 ) -> DocumentLibraryAction {
     let x = position.x.max(0.0) as usize;
     let y = position.y.max(0.0) as usize;
-    if x < 120 && y < HEADER_HEIGHT {
-        return DocumentLibraryAction::Close;
+    if x >= QUIT_X && y < HEADER_HEIGHT {
+        return DocumentLibraryAction::ExitApplication;
     }
-    if x >= 1180 && y < HEADER_HEIGHT {
+    if x >= NEW_NOTEBOOK_X && x < NEW_NOTEBOOK_X + NEW_NOTEBOOK_WIDTH && y < HEADER_HEIGHT {
         return DocumentLibraryAction::CreateNotebook;
     }
     if x >= ROW_X && x < ROW_X + ROW_WIDTH && y >= ROW_START_Y {
@@ -81,41 +79,35 @@ pub(crate) fn document_library_action_at(
     DocumentLibraryAction::None
 }
 
-fn draw_back_button(image: &mut BgraImage) {
-    image.fill_rounded_rectangle(24, 20, 88, 88, 22.0, [0xef, 0xee, 0xea]);
-    image.fill_rounded_rectangle(55, 61, 36, 6, 3.0, [0x35, 0x35, 0x34]);
-    image.fill_rounded_rectangle(50, 48, 6, 20, 3.0, [0x35, 0x35, 0x34]);
-    image.fill_rounded_rectangle(50, 66, 6, 20, 3.0, [0x35, 0x35, 0x34]);
-}
-
 fn draw_new_notebook_button(image: &mut BgraImage) {
-    image.fill_rounded_rectangle(1180, 20, 376, 88, 22.0, [0xd9, 0xe8, 0xf4]);
-    image.fill_rounded_rectangle(1214, 61, 28, 6, 3.0, [0x25, 0x25, 0x24]);
-    image.fill_rounded_rectangle(1225, 50, 6, 28, 3.0, [0x25, 0x25, 0x24]);
+    image.fill_rounded_rectangle(
+        NEW_NOTEBOOK_X,
+        20,
+        NEW_NOTEBOOK_WIDTH,
+        88,
+        22.0,
+        [0xd9, 0xe8, 0xf4],
+    );
+    image.fill_rounded_rectangle(1114, 61, 28, 6, 3.0, [0x25, 0x25, 0x24]);
+    image.fill_rounded_rectangle(1125, 50, 6, 28, 3.0, [0x25, 0x25, 0x24]);
     draw_text(
         image,
-        1264,
+        1164,
         77,
         "Nouveau carnet",
         28,
-        270,
+        240,
         [0x25, 0x25, 0x24],
     );
 }
 
-fn draw_document_row(image: &mut BgraImage, y: usize, document: &DocumentSummary, active: bool) {
-    image.fill_rounded_rectangle(
-        ROW_X,
-        y,
-        ROW_WIDTH,
-        ROW_HEIGHT,
-        20.0,
-        if active {
-            [0xd9, 0xe8, 0xf4]
-        } else {
-            [0xff, 0xff, 0xff]
-        },
-    );
+fn draw_quit_button(image: &mut BgraImage) {
+    image.fill_rounded_rectangle(QUIT_X, 20, QUIT_WIDTH, 88, 22.0, [0xf3, 0xdc, 0xda]);
+    draw_text(image, 1485, 76, "Quit", 28, 88, [0x25, 0x25, 0x24]);
+}
+
+fn draw_document_row(image: &mut BgraImage, y: usize, document: &DocumentSummary) {
+    image.fill_rounded_rectangle(ROW_X, y, ROW_WIDTH, ROW_HEIGHT, 20.0, [0xff, 0xff, 0xff]);
     image.fill_rounded_rectangle(96, y + 24, 64, 78, 7.0, [0x4a, 0x4a, 0x47]);
     image.fill_rounded_rectangle(102, y + 30, 52, 66, 4.0, [0xfa, 0xf9, 0xf6]);
     draw_text(
@@ -141,9 +133,6 @@ fn draw_document_row(image: &mut BgraImage, y: usize, document: &DocumentSummary
         900,
         [0x6a, 0x6a, 0x66],
     );
-    if active {
-        image.fill_rounded_rectangle(1472, y + 49, 28, 28, 14.0, [0x3b, 0x76, 0x9f]);
-    }
 }
 
 fn draw_screen_navigation(image: &mut BgraImage, document_count: usize, screen_index: usize) {

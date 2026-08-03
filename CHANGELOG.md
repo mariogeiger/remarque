@@ -2,6 +2,13 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.5.1 - 2026-08-03
+
+### Changed
+
+- The library is now the application home: returning to it closes the viewing
+  session, and no last-opened document is stored or preselected.
+
 ## 0.5.0 - 2026-08-03
 
 ### Added

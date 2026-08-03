@@ -20,13 +20,9 @@ pub fn apply_oldest_document_request(
         DocumentRequestKind::OpenDocument { document_id } => notebook
             .open_document(document_id)
             .map(|document| DocumentResponseKind::Opened { document }),
-        DocumentRequestKind::ListDocuments => {
-            let (active_document_id, documents) = notebook.documents();
-            Ok(DocumentResponseKind::Documents {
-                active_document_id,
-                documents,
-            })
-        }
+        DocumentRequestKind::ListDocuments => Ok(DocumentResponseKind::Documents {
+            documents: notebook.documents(),
+        }),
         DocumentRequestKind::Export {
             destination_path,
             scope,

@@ -3,7 +3,7 @@ use crate::color::Color;
 use crate::display::{QuillDisplay, Rectangle};
 use crate::document_library::{DocumentLibrary, restore_document_library, save_document_library};
 use crate::draw_document_library::{
-    DOCUMENTS_PER_SCREEN, DocumentLibraryAction, document_library_action_at, draw_document_library,
+    DocumentLibraryAction, document_library_action_at, draw_document_library,
 };
 use crate::draw_toolbar::{HEIGHT as TOOLBAR_HEIGHT, draw_toolbar};
 use crate::draw_viewport_indicators::draw_viewport_indicators;
@@ -52,12 +52,6 @@ enum ActiveStroke {
     Library,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum NotebookScreen {
-    Page,
-    Library,
-}
-
 struct ImageBackup {
     rectangle: Rectangle,
     pixels: Vec<u8>,
@@ -68,12 +62,16 @@ struct EdgeSwipe {
     current: Point,
 }
 
+struct OpenDocument {
+    document_id: String,
+    page: Page,
+}
+
 pub struct Notebook {
     display: Arc<QuillDisplay>,
     image: BgraImage,
-    page: Page,
+    open_document: Option<OpenDocument>,
     library: DocumentLibrary,
-    screen: NotebookScreen,
     library_screen_index: usize,
     state_path: PathBuf,
     selected_tool: DrawingTool,
@@ -93,14 +91,12 @@ impl Notebook {
     pub fn new(display: Arc<QuillDisplay>, state_path: PathBuf) -> io::Result<Self> {
         let width = display.width();
         let height = display.height();
-        let page = Page::blank(width, height, TOOLBAR_HEIGHT, Vec::new());
-        let image = page.raster_background(width, height);
+        let image = BgraImage::filled(width, height, [0xff, 0xff, 0xff]);
         let mut notebook = Self {
             display,
-            page,
             image,
+            open_document: None,
             library: DocumentLibrary::with_default_notebook(),
-            screen: NotebookScreen::Page,
             library_screen_index: 0,
             state_path,
             selected_tool: DrawingTool::Fineliner,
@@ -124,7 +120,7 @@ impl Notebook {
         if let Err(error) = notebook.restore_state() {
             eprintln!("notebook_state_ignored={error}");
         }
-        notebook.redraw_notebook()?;
+        notebook.redraw_document_library()?;
         notebook.display.show_color_full();
         Ok(notebook)
     }
@@ -143,72 +139,68 @@ impl Notebook {
         source_path: &Path,
         title: String,
     ) -> io::Result<DocumentSummary> {
-        self.store_active_strokes();
+        self.store_open_document_strokes()?;
         let page_count = u32::try_from(read_pdf_page_sizes(source_path)?.len())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "PDF has too many pages"))?;
         let summary =
             self.library
                 .import_pdf(document_id, source_path.to_owned(), title, page_count)?;
-        self.load_active_page()?;
-        self.transform = identity_transform(self.width(), self.height());
-        self.save_state()?;
-        self.redraw_notebook()?;
-        self.display.show_color_full();
+        self.show_document(&summary.document_id)?;
         Ok(summary)
     }
 
     pub fn open_document(&mut self, document_id: &str) -> io::Result<DocumentSummary> {
-        self.store_active_strokes();
-        let summary = self.library.open_document(document_id)?;
-        self.show_active_page()?;
+        self.store_open_document_strokes()?;
+        let summary = self.library.document_summary(document_id)?;
+        self.show_document(document_id)?;
         Ok(summary)
     }
 
     pub fn create_notebook(&mut self) -> io::Result<DocumentSummary> {
-        self.store_active_strokes();
+        self.store_open_document_strokes()?;
         let summary = self.library.create_notebook();
-        self.show_active_page()?;
+        self.show_document(&summary.document_id)?;
         Ok(summary)
     }
 
     pub fn insert_blank_page(&mut self) -> io::Result<DocumentSummary> {
-        self.store_active_strokes();
-        let summary = self.library.insert_blank_page();
-        self.show_active_page()?;
+        self.store_open_document_strokes()?;
+        let document_id = self.open_document_id()?.to_owned();
+        let summary = self.library.insert_blank_page(&document_id)?;
+        self.show_document(&document_id)?;
         Ok(summary)
     }
 
     pub fn change_page(&mut self, delta: i32) -> io::Result<DocumentSummary> {
-        self.store_active_strokes();
-        if self.library.change_page(delta) {
-            self.show_active_page()?;
+        self.store_open_document_strokes()?;
+        let document_id = self.open_document_id()?.to_owned();
+        if self.library.change_page(&document_id, delta)? {
+            self.show_document(&document_id)?;
         }
-        Ok(self.library.active_summary())
+        self.library.document_summary(&document_id)
     }
 
-    pub fn documents(&self) -> (String, Vec<DocumentSummary>) {
-        (
-            self.library.active_document_id().to_owned(),
-            self.library.summaries(),
-        )
+    pub fn documents(&self) -> Vec<DocumentSummary> {
+        self.library.summaries()
     }
 
     pub fn export(&mut self, destination: &Path, scope: ExportScope) -> io::Result<()> {
-        self.store_active_strokes();
+        self.store_open_document_strokes()?;
         self.save_state()?;
+        let document_id = self.open_document_id()?.to_owned();
         let width = self.width();
         let height = self.height();
         match scope {
             ExportScope::CurrentPage => export_document_pages(
                 destination,
-                std::slice::from_ref(self.library.active_page()),
+                std::slice::from_ref(self.library.page(&document_id)?),
                 width,
                 height,
                 TOOLBAR_HEIGHT,
             ),
             ExportScope::AllPages => export_document_pages(
                 destination,
-                self.library.active_pages(),
+                self.library.pages(&document_id)?,
                 width,
                 height,
                 TOOLBAR_HEIGHT,
@@ -225,7 +217,7 @@ impl Notebook {
             return Ok(false);
         }
 
-        if self.screen == NotebookScreen::Library {
+        if self.open_document.is_none() {
             if self.active_stroke.is_none() {
                 let documents = self.library.summaries();
                 let action = document_library_action_at(
@@ -234,7 +226,9 @@ impl Notebook {
                     self.library_screen_index,
                 );
                 self.active_stroke = Some(ActiveStroke::Library);
-                self.apply_document_library_action(action)?;
+                if self.apply_document_library_action(action)? {
+                    return Ok(true);
+                }
             }
             return Ok(false);
         }
@@ -245,12 +239,12 @@ impl Notebook {
                     return Ok(true);
                 }
                 self.active_stroke = Some(ActiveStroke::Toolbar);
-                if self.screen == NotebookScreen::Page {
+                if self.open_document.is_some() {
                     self.redraw_toolbar()?;
                 }
                 return Ok(false);
             }
-            if !rectangle_contains(self.page.rectangle, self.view_to_scene(frame.position)) {
+            if !rectangle_contains(self.page()?.rectangle, self.view_to_scene(frame.position)) {
                 self.active_stroke = Some(ActiveStroke::OutsidePage);
                 return Ok(false);
             }
@@ -366,7 +360,7 @@ impl Notebook {
     }
 
     pub fn apply_touch_frame(&mut self, frame: TouchFrame) -> io::Result<()> {
-        if self.screen == NotebookScreen::Library {
+        if self.open_document.is_none() {
             return Ok(());
         }
         let Some(points) = self
@@ -395,7 +389,11 @@ impl Notebook {
                 }
                 if let Some(swipe) = &mut self.edge_swipe {
                     swipe.current = point.position;
-                } else if self.library.active_summary().page_count > 1
+                } else if self
+                    .library
+                    .document_summary(self.open_document_id()?)?
+                    .page_count
+                    > 1
                     && point.position.y >= TOOLBAR_HEIGHT as f64
                     && starts_at_page_edge(point.position, self.width() as f64)
                 {
@@ -430,7 +428,7 @@ impl Notebook {
             current_centroid,
             adjusted_factor,
             self.viewport(),
-            self.scene_bounds(),
+            self.scene_bounds()?,
         ) {
             self.transform = transform;
         }
@@ -462,15 +460,17 @@ impl Notebook {
                 rasterizer.finish(&mut self.image);
                 let points = builder.finish();
                 if !points.is_empty() {
+                    let page_x = self.page()?.rectangle.x as f32;
+                    let page_y = self.page()?.rectangle.y as f32;
                     let points = points
                         .into_iter()
                         .map(|mut point| {
-                            point.x -= self.page.rectangle.x as f32;
-                            point.y -= self.page.rectangle.y as f32;
+                            point.x -= page_x;
+                            point.y -= page_y;
                             point
                         })
                         .collect();
-                    self.page.strokes.push(Stroke { points, color });
+                    self.page_mut()?.strokes.push(Stroke { points, color });
                     self.save_state()?;
                 }
                 if let Some(dirty) = dirty {
@@ -481,26 +481,27 @@ impl Notebook {
             Some(ActiveStroke::Eraser { centerline, .. }) => {
                 if !centerline.is_empty() {
                     let mut surviving = Vec::new();
+                    let page_x = self.page()?.rectangle.x as f64;
+                    let page_y = self.page()?.rectangle.y as f64;
                     let local_centerline = centerline
                         .into_iter()
                         .map(|point| Point {
-                            x: point.x - self.page.rectangle.x as f64,
-                            y: point.y - self.page.rectangle.y as f64,
+                            x: point.x - page_x,
+                            y: point.y - page_y,
                         })
                         .collect::<Vec<_>>();
-                    for stroke in self.page.strokes.drain(..) {
-                        for points in erase_stroke(
-                            &stroke.points,
-                            &local_centerline,
-                            self.eraser_thickness.pixels(),
-                        ) {
+                    let eraser_width = self.eraser_thickness.pixels();
+                    let page = self.page_mut()?;
+                    for stroke in page.strokes.drain(..) {
+                        for points in erase_stroke(&stroke.points, &local_centerline, eraser_width)
+                        {
                             surviving.push(Stroke {
                                 points,
                                 color: stroke.color,
                             });
                         }
                     }
-                    self.page.strokes = surviving;
+                    page.strokes = surviving;
                     self.save_state()?;
                     self.redraw_notebook()?;
                     self.display.show_color_full();
@@ -513,8 +514,8 @@ impl Notebook {
     }
 
     fn redraw_notebook(&mut self) -> io::Result<()> {
-        self.image = self.render_scene(self.transform);
-        let document = self.library.active_summary();
+        self.image = self.render_scene(self.transform)?;
+        let document = self.library.document_summary(self.open_document_id()?)?;
         draw_toolbar(
             &mut self.image,
             self.selected_tool,
@@ -525,7 +526,7 @@ impl Notebook {
         );
         if self.previous_pinch.is_some() {
             let viewport = self.viewport();
-            let scene = self.scene_bounds().size;
+            let scene = self.scene_bounds()?.size;
             draw_viewport_indicators(&mut self.image, self.transform, viewport, scene);
         }
         self.display.copy_from(
@@ -534,9 +535,10 @@ impl Notebook {
         )
     }
 
-    fn render_scene(&self, transform: ViewTransform) -> BgraImage {
+    fn render_scene(&self, transform: ViewTransform) -> io::Result<BgraImage> {
         let viewport = self.viewport();
-        let background = self.page.raster_background(self.width(), self.height());
+        let page = self.page()?;
+        let background = page.raster_background(self.width(), self.height());
         let mut image = transform_background(
             &background,
             transform,
@@ -544,20 +546,20 @@ impl Notebook {
             self.width(),
             self.height(),
         );
-        for stroke in &self.page.strokes {
+        for stroke in &page.strokes {
             let points: Vec<_> = stroke
                 .points
                 .iter()
                 .copied()
                 .map(|mut point| {
-                    point.x += self.page.rectangle.x as f32;
-                    point.y += self.page.rectangle.y as f32;
+                    point.x += page.rectangle.x as f32;
+                    point.y += page.rectangle.y as f32;
                     transform_point(point, transform, viewport)
                 })
                 .collect();
             render_fineliner_raster_points(&mut image, &points, stroke.color);
         }
-        image
+        Ok(image)
     }
 
     fn restore_state(&mut self) -> io::Result<()> {
@@ -567,32 +569,35 @@ impl Notebook {
             self.height(),
             TOOLBAR_HEIGHT,
         )?;
-        self.load_active_page()?;
         save_document_library(&self.state_path, &self.library)
     }
 
     fn save_state(&mut self) -> io::Result<()> {
-        self.store_active_strokes();
+        self.store_open_document_strokes()?;
         save_document_library(&self.state_path, &self.library)
     }
 
-    fn store_active_strokes(&mut self) {
-        self.library.store_active_strokes(self.page.strokes.clone());
+    fn store_open_document_strokes(&mut self) -> io::Result<()> {
+        if let Some(open_document) = &self.open_document {
+            self.library.store_strokes(
+                &open_document.document_id,
+                open_document.page.strokes.clone(),
+            )?;
+        }
+        Ok(())
     }
 
-    fn load_active_page(&mut self) -> io::Result<()> {
-        self.page = Page::from_document_page(
-            self.library.active_page(),
+    fn show_document(&mut self, document_id: &str) -> io::Result<()> {
+        let page = Page::from_document_page(
+            self.library.page(document_id)?,
             self.width(),
             self.height(),
             TOOLBAR_HEIGHT,
         )?;
-        Ok(())
-    }
-
-    fn show_active_page(&mut self) -> io::Result<()> {
-        self.load_active_page()?;
-        self.screen = NotebookScreen::Page;
+        self.open_document = Some(OpenDocument {
+            document_id: document_id.to_owned(),
+            page,
+        });
         self.transform = identity_transform(self.width(), self.height());
         self.save_state()?;
         self.redraw_notebook()?;
@@ -602,42 +607,28 @@ impl Notebook {
 
     fn show_document_library(&mut self) -> io::Result<()> {
         self.save_state()?;
-        let active_document_id = self.library.active_document_id();
-        self.library_screen_index = self
-            .library
-            .summaries()
-            .iter()
-            .position(|document| document.document_id == active_document_id)
-            .unwrap_or(0)
-            / DOCUMENTS_PER_SCREEN;
-        self.screen = NotebookScreen::Library;
+        self.open_document = None;
+        self.library_screen_index = 0;
+        self.previous_pinch = None;
+        self.edge_swipe = None;
         self.redraw_document_library()
     }
 
     fn redraw_document_library(&mut self) -> io::Result<()> {
         let documents = self.library.summaries();
-        draw_document_library(
-            &mut self.image,
-            &documents,
-            self.library.active_document_id(),
-            self.library_screen_index,
-        );
+        draw_document_library(&mut self.image, &documents, self.library_screen_index);
         let full = Rectangle::full(self.image.width(), self.image.height());
         self.display.copy_from(&self.image, full)?;
         self.display.show_color_full();
         Ok(())
     }
 
-    fn apply_document_library_action(&mut self, action: DocumentLibraryAction) -> io::Result<()> {
+    fn apply_document_library_action(&mut self, action: DocumentLibraryAction) -> io::Result<bool> {
         match action {
-            DocumentLibraryAction::Close => {
-                self.screen = NotebookScreen::Page;
-                self.redraw_notebook()?;
-                self.display.show_color_full();
-            }
             DocumentLibraryAction::CreateNotebook => {
                 self.create_notebook()?;
             }
+            DocumentLibraryAction::ExitApplication => return Ok(true),
             DocumentLibraryAction::OpenDocument(document_id) => {
                 self.open_document(&document_id)?;
             }
@@ -651,11 +642,11 @@ impl Notebook {
             }
             DocumentLibraryAction::None => {}
         }
-        Ok(())
+        Ok(false)
     }
 
     fn redraw_toolbar(&mut self) -> io::Result<()> {
-        let document = self.library.active_summary();
+        let document = self.library.document_summary(self.open_document_id()?)?;
         draw_toolbar(
             &mut self.image,
             self.selected_tool,
@@ -704,14 +695,36 @@ impl Notebook {
         }
     }
 
-    fn scene_bounds(&self) -> Bounds {
-        Bounds {
+    fn scene_bounds(&self) -> io::Result<Bounds> {
+        let page = self.page()?;
+        Ok(Bounds {
             origin: Point { x: 0.0, y: 0.0 },
             size: Size {
-                width: self.page.scene_width(self.width()) as f64,
-                height: self.page.scene_height(self.height()) as f64,
+                width: page.scene_width(self.width()) as f64,
+                height: page.scene_height(self.height()) as f64,
             },
-        }
+        })
+    }
+
+    fn open_document_id(&self) -> io::Result<&str> {
+        self.open_document
+            .as_ref()
+            .map(|document| document.document_id.as_str())
+            .ok_or_else(|| io::Error::other("no document is open"))
+    }
+
+    fn page(&self) -> io::Result<&Page> {
+        self.open_document
+            .as_ref()
+            .map(|document| &document.page)
+            .ok_or_else(|| io::Error::other("no document is open"))
+    }
+
+    fn page_mut(&mut self) -> io::Result<&mut Page> {
+        self.open_document
+            .as_mut()
+            .map(|document| &mut document.page)
+            .ok_or_else(|| io::Error::other("no document is open"))
     }
 }
 

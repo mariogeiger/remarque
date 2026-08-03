@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "remarque-document"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "flate2",
  "serde",
@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "remarque-tablet"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "axum",
  "drm",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "remarque-telegram-bot"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "remarque-document",
  "serde",

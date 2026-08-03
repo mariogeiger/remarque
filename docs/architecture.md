@@ -60,6 +60,10 @@ operations. An incoming PDF remains immutable; its pages are optional scene
 backgrounds beneath separately persisted strokes. Zoom changes only the view
 transform, while strokes stay in scene coordinates.
 
+The library itself has no active-document field. It is the home state, while an
+opened document is an ephemeral tablet view. Returning home or restarting the
+application cannot implicitly reopen a file.
+
 Current-page export flattens one page without the toolbar. Whole-document
 export performs that operation page by page and writes a multi-page PDF while
 holding only one rasterized page in memory. Distinct source page dimensions

@@ -30,6 +30,10 @@ an ordered list of the same page type: a page has an optional immutable PDF
 background and editable strokes. The toolbar can insert a blank page after the
 current page in either kind of document.
 
+The library is the home screen. Opening a document creates only a runtime view;
+returning home drops that view, and startup never restores or highlights a
+last-opened document. Per-document pages and annotations remain persistent.
+
 The stream listens on port `7432` without authentication. Expose it only on a
 trusted local network or through a private network transport.
 
