@@ -11,3 +11,6 @@ the original document is always available unchanged.
 Requests and responses are atomically renamed into a mailbox directory. A
 request is removed only after its response is durable, so restarting either
 process cannot silently lose an operation.
+
+Page export is independent of its background source: the same operation
+flattens strokes over either a white page or a rendered PDF page.

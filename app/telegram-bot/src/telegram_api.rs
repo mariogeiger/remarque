@@ -139,7 +139,7 @@ impl TelegramApi {
         }
         #[derive(Serialize)]
         struct Parameters<'a> {
-            commands: [Command<'a>; 6],
+            commands: [Command<'a>; 7],
         }
         let _: bool = self.call_json(
             "setMyCommands",
@@ -164,6 +164,10 @@ impl TelegramApi {
                     Command {
                         command: "previous",
                         description: "Afficher la page précédente",
+                    },
+                    Command {
+                        command: "close",
+                        description: "Fermer le PDF et afficher la page blanche",
                     },
                     Command {
                         command: "status",

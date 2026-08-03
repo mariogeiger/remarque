@@ -24,6 +24,13 @@ pub fn apply_oldest_document_request(
         DocumentRequestKind::ChangePage { delta } => notebook
             .change_page(*delta)
             .map(|document| DocumentResponseKind::PageChanged { document }),
+        DocumentRequestKind::CloseDocument => notebook.close_pdf().map(|closed| {
+            if closed {
+                DocumentResponseKind::Closed
+            } else {
+                DocumentResponseKind::NoDocument
+            }
+        }),
         DocumentRequestKind::GetCurrentDocument => Ok(notebook
             .current_document()
             .map_or(DocumentResponseKind::NoDocument, |document| {

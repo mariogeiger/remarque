@@ -18,6 +18,8 @@ pub const GRAY_BUTTON_X: usize = 768;
 pub const BLUE_BUTTON_X: usize = 840;
 pub const RED_BUTTON_X: usize = 912;
 pub const COLOR_BUTTON_WIDTH: usize = 56;
+pub const CLOSE_BUTTON_X: usize = 1268;
+pub const CLOSE_BUTTON_WIDTH: usize = 136;
 pub const QUIT_BUTTON_X: usize = 1444;
 pub const QUIT_BUTTON_WIDTH: usize = 136;
 
@@ -27,6 +29,7 @@ pub enum ToolbarAction {
     SelectEraser,
     SelectThickness(FinelinerThickness),
     SelectColor(Color),
+    CloseDocument,
     ExitApplication,
     None,
 }
@@ -42,6 +45,7 @@ pub fn map_x_to_action(x: usize) -> ToolbarAction {
         GRAY_BUTTON_X..=823 => ToolbarAction::SelectColor(Color::Gray),
         BLUE_BUTTON_X..=895 => ToolbarAction::SelectColor(Color::Blue),
         RED_BUTTON_X..=967 => ToolbarAction::SelectColor(Color::Red),
+        CLOSE_BUTTON_X..=1403 => ToolbarAction::CloseDocument,
         QUIT_BUTTON_X..=1579 => ToolbarAction::ExitApplication,
         _ => ToolbarAction::None,
     }
@@ -67,5 +71,15 @@ mod tests {
             map_x_to_action(BLUE_BUTTON_X),
             ToolbarAction::SelectColor(Color::Blue)
         );
+    }
+
+    #[test]
+    fn maps_close_document_button() {
+        assert_eq!(
+            map_x_to_action(CLOSE_BUTTON_X),
+            ToolbarAction::CloseDocument
+        );
+        assert_eq!(map_x_to_action(1403), ToolbarAction::CloseDocument);
+        assert_eq!(map_x_to_action(1404), ToolbarAction::None);
     }
 }

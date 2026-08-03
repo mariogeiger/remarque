@@ -20,4 +20,6 @@ The service rejects a file with group or world permissions. Never commit this
 configuration.
 
 `/next` and `/previous` change the displayed PDF page while preserving an
-independent annotation layer for each page.
+independent annotation layer for each page. `/close` returns to the persistent
+blank page, `/open` restores the last PDF, and `/page` exports whichever page is
+currently visible.

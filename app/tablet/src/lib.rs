@@ -14,6 +14,10 @@ pub mod filter_touch_sequences;
 pub mod input;
 #[cfg(feature = "takeover")]
 pub mod notebook;
+#[cfg(feature = "takeover")]
+mod notebook_state;
+#[cfg(any(feature = "takeover", test))]
+mod page;
 #[cfg(any(feature = "takeover", test))]
 mod page_coordinates;
 #[cfg(feature = "takeover")]

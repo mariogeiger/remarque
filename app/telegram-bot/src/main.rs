@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use telegram_api::{TelegramApi, TelegramDocument, TelegramMessage, TelegramUpdate};
 
-const HELP: &str = "Envoie-moi un PDF : je l’ouvre dans Remarque. /page renvoie la page annotée, /document l’original, /next et /previous changent de page, /open rouvre le dernier PDF.";
+const HELP: &str = "Envoie-moi un PDF : je l’ouvre dans Remarque. /page renvoie la page actuelle, /document l’original, /next et /previous changent de page, /close revient à la page blanche, /open rouvre le dernier PDF.";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct ReceivedPdf {
@@ -138,6 +138,7 @@ impl BotRuntime {
             "/document" => self.send_current_document(update.update_id, &message),
             "/next" => self.change_page(update.update_id, &message, 1),
             "/previous" => self.change_page(update.update_id, &message, -1),
+            "/close" => self.close_document(update.update_id, &message),
             "/status" => self.send_status(update.update_id, &message),
             _ => self.reply(&message, HELP),
         }
@@ -253,7 +254,7 @@ impl BotRuntime {
                     self.allowed_chat_id,
                     &path,
                     "remarque-page.pdf",
-                    "Page annotée, aplatie en PDF.",
+                    "Page actuelle, aplatie en PDF.",
                     Some(message.message_id),
                 )?;
                 fs::remove_file(path)?;
@@ -352,6 +353,31 @@ impl BotRuntime {
             DocumentResponseKind::NoDocument => Ok(None),
             DocumentResponseKind::Failed { message } => Err(io::Error::other(message).into()),
             _ => Err(io::Error::other("unexpected current-document response").into()),
+        }
+    }
+
+    fn close_document(
+        &mut self,
+        update_id: i64,
+        message: &TelegramMessage,
+    ) -> Result<(), Box<dyn Error>> {
+        ensure_tablet_running()?;
+        let response = self.request_document(
+            DocumentRequest {
+                id: update_id as u64 * 10 + 7,
+                kind: DocumentRequestKind::CloseDocument,
+            },
+            Duration::from_secs(10),
+        )?;
+        match response.kind {
+            DocumentResponseKind::Closed => {
+                self.reply(message, "PDF fermé. La page blanche est affichée.")
+            }
+            DocumentResponseKind::NoDocument => self.reply(message, "Aucun PDF n’est ouvert."),
+            DocumentResponseKind::Failed { message: failure } => {
+                self.reply(message, &format!("Fermeture impossible : {failure}"))
+            }
+            _ => Err(io::Error::other("unexpected close-document response").into()),
         }
     }
 

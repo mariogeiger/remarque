@@ -57,7 +57,8 @@ An incoming PDF is immutable. `remarque-tablet` rasterizes its current page as
 the scene background and persists a separate Remarque stroke layer for every
 page. Zoom changes only the view transform; strokes stay in scene coordinates.
 `/page` renders the untransformed scene without the toolbar and flattens it into
-a new one-page PDF. `/document` returns the untouched source.
+a new one-page PDF. A blank page is the same page object without a PDF
+background. `/document` returns the untouched source only while it is open.
 
 Each PDF page is a separate scene. At minimum zoom its PDF width equals the
 screen width; tall pages pan vertically, while a short or landscape page leaves

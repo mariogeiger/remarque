@@ -2,6 +2,22 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.4.0 - 2026-08-03
+
+### Added
+
+- A toolbar action and `/close` command that close the active PDF without
+  deleting it, then return to the persistent blank page.
+- `/page` export for both blank pages and PDF-backed pages.
+
+### Changed
+
+- Blank and PDF-backed pages now share one page model. A PDF is an optional
+  immutable background beneath the same strokes, dimensions, transform, and
+  export path.
+- Reopening the last PDF restores its page number and annotations, while the
+  independent blank page is restored when the PDF closes again.
+
 ## 0.3.0 - 2026-08-03
 
 ### Added

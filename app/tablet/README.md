@@ -9,6 +9,7 @@ and returns cleanly to Xochitl through an explicit Quit action.
 - `filter_touch_sequences` rejects palm and excess-contact sequences.
 - `notebook` owns strokes, tool settings, erasure, and view-transform state.
 - `pdfium` renders immutable PDF pages into notebook backgrounds.
+- `page` represents geometry, strokes, and an optional PDF background.
 - `document_requests` applies durable open, inspect, and export requests.
 - `edge_page_swipe` recognizes deliberate one-finger page turns from the left
   or right screen edge.
@@ -21,6 +22,10 @@ and returns cleanly to Xochitl through an explicit Quit action.
 Portable colors, strokes, images, geometry, erasure, and fineliner rendering
 come from `remarque-core`; mailbox and PDF-export contracts come from
 `remarque-document`. Native capture and decompiler code never enters this crate.
+
+The document-close icon returns to a separately persisted blank page without
+deleting the PDF or its annotations. Drawing, erasure, transforms, persistence,
+and page export use the same path for blank and PDF-backed pages.
 
 The stream listens on port `7432` without authentication. Expose it only on a
 trusted local network or through a private network transport.

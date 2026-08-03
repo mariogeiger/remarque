@@ -13,6 +13,7 @@ pub(crate) fn draw_toolbar(
     selected_tool: DrawingTool,
     thickness: FinelinerThickness,
     color: Color,
+    document_open: bool,
 ) {
     const BACKGROUND: [u8; 3] = [0xff, 0xff, 0xff];
     const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
@@ -93,6 +94,7 @@ pub(crate) fn draw_toolbar(
         draw_color_swatch(image, x, swatch, swatch == color, SELECTED, PANEL);
     }
     draw_toolbar_separator(image, 1008);
+    draw_close_document_button(image, document_open, PANEL);
     image.fill_rounded_rectangle(
         toolbar::QUIT_BUTTON_X,
         toolbar::BUTTON_Y,
@@ -102,6 +104,44 @@ pub(crate) fn draw_toolbar(
         [0xf3, 0xdc, 0xda],
     );
     draw_quit_label(image);
+}
+
+fn draw_close_document_button(image: &mut BgraImage, document_open: bool, panel_rgb: [u8; 3]) {
+    let ink = if document_open {
+        [0x35, 0x35, 0x34]
+    } else {
+        [0xb8, 0xb6, 0xb0]
+    };
+    draw_toolbar_button(
+        image,
+        toolbar::CLOSE_BUTTON_X,
+        toolbar::CLOSE_BUTTON_WIDTH,
+        false,
+        panel_rgb,
+        panel_rgb,
+    );
+    let x = toolbar::CLOSE_BUTTON_X;
+    image.fill_rounded_rectangle(x + 43, 35, 42, 50, 5.0, ink);
+    image.fill_rounded_rectangle(x + 47, 39, 34, 42, 3.0, panel_rgb);
+    let point = |x: f32, y: f32| FinelinerRasterPoint { x, y, width: 5.0 };
+    render_fineliner_raster_points(
+        image,
+        &[point(x as f32 + 76.0, 62.0), point(x as f32 + 98.0, 84.0)],
+        if document_open {
+            Color::Black
+        } else {
+            Color::Gray
+        },
+    );
+    render_fineliner_raster_points(
+        image,
+        &[point(x as f32 + 98.0, 62.0), point(x as f32 + 76.0, 84.0)],
+        if document_open {
+            Color::Black
+        } else {
+            Color::Gray
+        },
+    );
 }
 
 fn draw_toolbar_button(

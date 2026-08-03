@@ -23,6 +23,7 @@ pub enum DocumentRequestKind {
     ChangePage {
         delta: i32,
     },
+    CloseDocument,
     GetCurrentDocument,
 }
 
@@ -46,6 +47,7 @@ pub enum DocumentResponseKind {
     Opened { document: CurrentDocument },
     Exported { path: PathBuf },
     PageChanged { document: CurrentDocument },
+    Closed,
     CurrentDocument { document: CurrentDocument },
     NoDocument,
     Failed { message: String },
