@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+symbols="$workspace/reverse-engineering/ghidra/recovered-symbols.tsv"
+signatures="$workspace/reverse-engineering/ghidra/recovered-signatures.tsv"
+readable="$workspace/reverse-engineering/readable/3.27.3.0"
+
+awk -F '\t' '
+    NR == 1 {
+        if ($0 != "# address\tname\tparameters\tsubsystem\tconfidence\tevidence") exit 1
+        next
+    }
+    NF != 6 || $1 !~ /^[0-9a-f]{8}$/ || $2 !~ /^[a-z][a-z0-9_]*$/ ||
+        $4 !~ /^(gestures|transforms|drawing|eraser|display)$/ ||
+        $5 !~ /^(high|medium)$/ || $6 == "" { exit 1 }
+    seen_address[$1]++ { if (seen_address[$1] > 1) exit 1 }
+    seen_name[$2]++ { if (seen_name[$2] > 1) exit 1 }
+' "$symbols"
+
+awk -F '\t' '
+    NR == FNR { if (NR > 1) known[$1] = 1; next }
+    FNR == 1 {
+        if ($0 != "# address\treturn_type\tparameters") exit 1
+        next
+    }
+    NF != 3 || !($1 in known) { exit 1 }
+    seen[$1]++ { if (seen[$1] > 1) exit 1 }
+' "$symbols" "$signatures"
+
+awk -F '\t' 'NR > 1 { print $4, $2 }' "$symbols" | while read -r subsystem name; do
+    grep -Fq "$name" "$readable/$subsystem.c"
+done
+
+test "$(sed -n '$=' "$readable/call-graph.tsv")" -gt 1
+echo "readable Xochitl exports are consistent"

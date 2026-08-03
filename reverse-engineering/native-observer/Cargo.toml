@@ -1,0 +1,19 @@
+[package]
+name = "remarque-native-observer"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2.189"
+
+[[bin]]
+name = "capture-native-line-points"
+path = "src/capture_native_line_points.rs"
+
+[[bin]]
+name = "capture-native-triangles"
+path = "src/capture_native_triangles.rs"
+
+[[bin]]
+name = "capture-native-stroke-trace"
+path = "src/capture_native_stroke_trace.rs"

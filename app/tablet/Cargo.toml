@@ -1,0 +1,32 @@
+[package]
+name = "remarque-tablet"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"] }
+drm = "0.15.0"
+libc = "0.2.189"
+signal-hook = "0.3.18"
+remarque-core = { path = "../core" }
+tokio = { version = "1.53.1", features = ["net", "rt", "sync", "time"] }
+
+[features]
+takeover = []
+
+[[bin]]
+name = "remarque-tablet"
+path = "src/remarque_tablet.rs"
+required-features = ["takeover"]
+
+[[bin]]
+name = "inspect-display"
+path = "src/inspect_display.rs"
+
+[[bin]]
+name = "switch-tablet-ui"
+path = "src/switch_tablet_ui.rs"
+
+[[bin]]
+name = "launch-remarque-when-native-tile-opens"
+path = "src/launch_remarque_when_native_tile_opens.rs"

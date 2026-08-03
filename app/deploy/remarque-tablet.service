@@ -1,0 +1,18 @@
+[Unit]
+Description=Remarque tablet application
+Conflicts=xochitl.service
+After=xochitl.service dev-dri-card0.device
+Requires=dev-dri-card0.device
+
+[Service]
+Type=simple
+Environment="LD_LIBRARY_PATH=/home/root/remarque/lib:/usr/lib/plugins/scenegraph"
+ExecStartPre=/bin/sh -c 'echo remarque-tablet > /sys/power/wake_lock 2>/dev/null || true'
+ExecStartPre=/bin/rm -f /tmp/epframebuffer.lock
+ExecStart=/home/root/remarque/bin/remarque-tablet
+ExecStopPost=/bin/sh -c 'rm -f /tmp/epframebuffer.lock; echo remarque-tablet > /sys/power/wake_unlock 2>/dev/null || true; systemctl --no-block start xochitl.service'
+Restart=no
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+# address	name	parameters	subsystem	confidence	evidence
+00791d40	compute_touch_separation_scale	recognizer,initial_frame_index,current_frame_index	gestures	high	Mean touch radius in the current frame divided by the initial frame.
+00791bf0	compute_touch_frame_centroid	touch_frames,frame_index	gestures	high	Averages both coordinates of every 56-byte touch record in the selected frame.
+00791fd0	retain_only_latest_touch_frame	touch_frames	gestures	high	Copies the last 40-byte frame record and replaces the frame vector with that single record.
+00791b40	get_touch_area_logging_category		gestures	high	Constructs and returns the Qt logging category named rm.toucharea.
+00776ab0	initialize_touch_area_drag_filter	filter	gestures	high	Initializes the drag filter with a palm-area threshold of 900 square pixels and the recovered gesture defaults.
+00785a00	dispatch_touch_area_filter_property_access	filter,call,property,arguments	gestures	high	Qt metacall exposes palmAreaThreshold as property zero and reads or writes filter offset 0x10.
+00795a10	reject_touch_sequence_exceeding_common_limits	filter	gestures	high	Rejects invalid timing, excess contact count, or any contact whose width times height exceeds the configured palm threshold.
+00796c30	accept_touch_scale_gesture		gestures	high	Sets gesture state 4 and emits the scale signals.
+00797f70	update_accepted_touch_drag		gestures	high	Updates an accepted drag while repeating the palm-area check and rejects it when a palm appears.
+00dbaab0	set_scene_focal_point_and_scale	focal_x,focal_y,scale,transform	transforms	high	Snaps, clamps, stores, and publishes focal point plus scale.
+00dba970	compute_pixel_aligned_viewport_origin	transform	transforms	high	Rounds the scaled top-left scene coordinate to device pixels and returns both coordinates.
+00dba9f0	build_view_to_scene_transform	transform	transforms	high	Builds the affine map scene = view / scale + pixel-aligned viewport origin.
+00dbaa50	build_scene_to_view_transform	transform	transforms	high	Builds the inverse affine map view = (scene - pixel-aligned viewport origin) * scale.
+00db2fc0	get_scene_renderer_logging_category		transforms	high	Constructs and returns the Qt logging category named rm.scene.renderer.
+00dbaf00	scale_scene_about_view_point	view_x,view_y,scale_factor,transform	transforms	high	Keeps the scene point under the supplied view point fixed while scaling.
+00dbb060	pan_scene_by_view_delta	view_delta_x,view_delta_y,transform	transforms	high	Subtracts view displacement divided by scale from the focal point.
+00915c40	build_fineliner_v2_color_palette	palette	drawing	high	Constructs the recovered tool color records and exact RGB values.
+0091be60	format_thickness_preset_name		drawing	high	Returns Thin, Medium, or Thick as a QString for the corresponding enum value.
+00841ea0	begin_pen_line	line_input,raw_pen_sample	drawing	high	Creates the active line from the first five-float pen sample.
+008441a0	append_pen_sample_to_active_line		drawing	high	Appends a raw pen sample and advances live line input.
+00ef7ac0	quantize_pen_sample_to_line_point		drawing	high	Builds the packed 14-byte point with fixed-point width, direction, and pressure.
+00f00830	render_live_pen_line	line_renderer,line,tool_id	drawing	high	Selects and invokes the live renderer for the active tool.
+00843eb0	finish_pen_line	line_input	drawing	high	Emits the completed line to the scene layer.
+00844890	cancel_pen_line	line_input	drawing	high	Clears temporary rendering without emitting a line.
+00f04740	render_antialiased_solid_line		drawing	high	Solid raster path selected by the v2 fineliner.
+00f08680	append_point_to_antialiased_ribbon		drawing	high	Stores the first point, then constructs and fills the variable-width ribbon segment to each subsequent point.
+00f089e0	finish_antialiased_ribbon		drawing	high	Fills the pending symmetric end cap and resets the incremental ribbon state.
+00efa170	fill_antialiased_ribbon_join		drawing	high	Fills the gap between consecutive ribbon segments, tessellating curved joins when configured.
+00ef9e50	fill_antialiased_ribbon_start_cap		drawing	high	Fills the cached first-segment cap according to the configured cap style.
+00ef9730	fill_clipped_quadrilateral		drawing	high	Splits a four-corner ribbon primitive into clipped triangles and sends them to the coverage rasterizer.
+00f05980	composite_antialiased_coverage_tiles		drawing	high	Composites the accumulated 32-by-32 coverage tiles into the 16-bit or 32-bit destination image.
+00f16270	rasterize_bgra_antialiased_triangle_scanlines		drawing	high	Interpolates half-width and signed-distance coverage coordinates across triangle scanlines, then blends BGRA pixels.
+00f169e0	fill_bgra_antialiased_triangle		drawing	high	Virtual triangle-sink entry that forwards three positions and their coverage coordinates to the BGRA scanline rasterizer.
+00f0da50	build_variable_width_segment_ribbon		drawing	high	Offsets segment endpoints along the unit normal by their half-widths.
+00df76f0	simplify_eraser_path	result,eraser_path	eraser	high	Simplifies the captured path with tolerance 0.5 before scene editing.
+00e5baf0	apply_eraser_path_to_scene		eraser	high	Starts the authoritative grouped scene mutation for an eraser path.
+00df8e10	group_eraser_hits_by_scene_node	result,layer,eraser_mask,search_bounds	eraser	high	Traverses a layer and groups intersecting items by scene node.
+00dfc710	find_and_replace_erased_scene_items		eraser	high	Searches the scene and replaces each hit with its surviving sections.
+00e4e090	split_line_outside_eraser_mask	result,line,eraser_mask,edge_index,search_bounds	eraser	high	Returns the line intervals outside the polygonal eraser mask.
+00debd10	rebuild_render_cache_for_edited_items		eraser	high	Invalidates and rebuilds render items affected by scene edits.
+009c5c20	initialize_epaper_framebuffer		display	high	Creates framebuffer images, DRM buffers, waveform state, and worker threads.
+00b9be80	prepare_and_queue_epaper_update	update_request	display	high	Clips the dirty rectangle, selects conversion and waveform modes, converts it in up to three parallel bands, and queues the update.
+009cdc20	initialize_epaper_update_record	update	display	high	Initializes the 176-byte update record, including its rectangle list, defaults, identifier, and flags.
+009cb660	copy_epaper_update_record	destination,source	display	high	Copies every field of the 176-byte update record and duplicates its linked rectangle list.
+009cb9e0	subtract_update_rectangle_from_pending_updates	pending_updates,new_update	display	high	Removes overlap with the new rectangle by replacing each intersecting pending rectangle with up to four non-overlapping remainder rectangles.
+009cc250	map_update_rect_to_packed_frame_coordinates	update	display	high	Converts logical coordinates for the two-row, four-column packed DRM layout.
+009ca9f0	convert_bgra_update_to_tone_levels		display	high	Dispatches BGRA conversion through the selected update-mode threshold table.
+00ba4e80	quantize_bgra_pixels_with_tetrahedral_thresholds		display	high	Interpolates the 33-cube thresholds and emits one of eight tone levels.
+009d14f0	read_color_threshold_cube	thresholds,path	display	high	Reads one exact-size 33 cubed by eight threshold file.
+009d9ee0	load_panel_waveform_tables	waveform_state,path	display	high	Loads the panel waveform file and builds runtime transition tables.
+009d6310	dispatch_waveform_frame_generation	frame_state,source,frame_count,destination,phase	display	high	Selects the one-through-five-frame generation specialization.
+009d6510	run_waveform_frame_generation_thread	frame_state	display	high	Entry point of the real-time framegen worker.
+00ba4550	pack_eight_waveform_drive_codes		display	high	Selects three-bit phases for eight pixels and packs them into one DRM word.

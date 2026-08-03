@@ -1,0 +1,11 @@
+[Unit]
+Description=SSH socket for the Tailscale proxy
+Requires=dropbearkey.service
+After=dropbearkey.service
+
+[Socket]
+ListenStream=127.0.0.1:2222
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

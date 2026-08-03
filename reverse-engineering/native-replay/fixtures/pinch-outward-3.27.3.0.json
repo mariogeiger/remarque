@@ -1,0 +1,13 @@
+{
+  "operation": "two_finger_scale",
+  "id": "pinch-outward-3.27.3.0",
+  "evidence": {
+    "firmware": "3.27.3.0",
+    "binary_sha256": "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e",
+    "capture": ".build/reverse/3.27.3.0/validation-20260803/touch.raw"
+  },
+  "initial": [{ "x": 0.0, "y": 0.0 }, { "x": 448.135, "y": 0.0 }],
+  "current": [{ "x": 0.0, "y": 0.0 }, { "x": 1040.771, "y": 0.0 }],
+  "native_output": 2.32245,
+  "absolute_tolerance": 0.00001
+}

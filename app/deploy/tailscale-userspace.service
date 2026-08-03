@@ -1,0 +1,13 @@
+[Unit]
+Description=Tailscale userspace network
+After=network.target home.mount
+RequiresMountsFor=/home/root/tailscale
+
+[Service]
+Type=simple
+ExecStart=/home/root/tailscale/tailscaled --tun=userspace-networking --state=/home/root/tailscale/tailscaled.state --statedir=/home/root/tailscale --socket=/home/root/tailscale/tailscaled.sock --no-logs-no-support
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

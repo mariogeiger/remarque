@@ -65,7 +65,8 @@ The Wi-Fi address is assigned by the local router and may change.
 - Firmware updates can invalidate framebuffer discovery even when the binary
   itself still runs.
 
-Remarque runs manually from `/home/root` and does not install a boot service.
+The deployment units under `app/deploy/` keep Remarque and Xochitl mutually
+exclusive and return to Xochitl when Remarque exits.
 
 ## Why `/dev/fb0` does not work
 
@@ -81,9 +82,10 @@ stack instead. On the tested firmware:
 This is why older `armv7` binaries and framebuffer recipes for reMarkable 1 or 2
 are not applicable.
 
-## Framebuffer discovery
+## Native framebuffer observation
 
-Remarque follows the approach demonstrated by `goMarkableStream`:
+The probes under `reverse-engineering/native-observer/` follow the approach
+demonstrated by `goMarkableStream`:
 
 1. Find the current `xochitl` PID by process name.
 2. Parse `/proc/<pid>/maps` and take the end address of the last
@@ -97,18 +99,16 @@ On the tested session, the discovered allocation was `14,102,530` bytes. The
 visible frame consumes `14,100,480` bytes. These values validate the candidate,
 but the virtual address and process ID change and are always rediscovered.
 
-The current binary refuses to run on firmware other than `3.27.3.0`. Reading a
-plausible but incorrect process address is a worse failure mode than stopping
-with a clear compatibility error.
+These probes are pinned to firmware `3.27.3.0`. Reading a plausible but
+incorrect process address is a worse failure mode than stopping with a clear
+compatibility error. The Remarque application does not read Xochitl memory.
 
 ## Streaming protocol
 
-The tablet serves an embedded HTML viewer and a `/ws/2` WebSocket on port
-`7432`. Versioning the path rejects stale viewers before starting a capture.
+The Remarque process serves an embedded HTML viewer and a `/ws/3` WebSocket on
+port `7432`. This is part of the tablet process, not a second program.
 
-Each binary WebSocket message starts with a 16-byte little-endian header. The
-display geometry is fixed by protocol version 2 rather than repeated in every
-message:
+Each binary WebSocket message starts with a 28-byte little-endian header:
 
 | Offset | Size | Field |
 | --- | ---: | --- |
@@ -117,21 +117,24 @@ message:
 | `5` | 1 | Message type |
 | `8` | 4 | Payload length |
 | `12` | 4 | Tile count |
+| `16` | 4 | Image width |
+| `20` | 4 | Image height |
+| `24` | 4 | Full-frame row stride |
 
 Message types are:
 
 - `1`: complete BGRA frame;
 - `2`: changed tiles.
 
-A changed `64x64` tile contains an 8-byte `x, y, width, height` descriptor
+A changed `64x64` tile contains a 16-byte `x, y, width, height` descriptor
 followed by tightly packed BGRA pixels. The browser converts only those tiles to
 RGBA and updates the corresponding canvas regions. A complete frame is sent on
 connect or when a delta would exceed half a frame.
 
-Pen pressure and touch events wake a 10 Hz capture loop. It remains active for
-800 ms after the last input, then falls back to one scan every five seconds. This
-keeps idle CPU usage low while still catching non-input screen changes. Only one
-viewer is allowed, and the one-message queue provides strict backpressure.
+Every display copy increments a generation counter. While one viewer is
+connected, the stream snapshots at most 10 times per second and only after that
+counter changes. The snapshot reads the same synchronized Quill buffer shown on
+the tablet, so idle streaming performs no framebuffer copies.
 
 ## Input devices
 
@@ -150,8 +153,8 @@ enumerate devices and match their names and capabilities at runtime.
 ## Current limitations
 
 - Firmware support is pinned to `3.27.3.0`.
-- The server is plain HTTP/WebSocket with no authentication.
-- A `xochitl` restart requires restarting the agent.
+- The stream is plain HTTP/WebSocket with no authentication. Run it only on a
+  trusted LAN or behind a private network transport.
 - Pixel tiles are not compressed. A measured drawing session averaged roughly
   `192 KB/s`; compression would spend more of the tablet's limited CPU to save
   bandwidth that a local Wi-Fi connection does not need.

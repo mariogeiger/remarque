@@ -1,0 +1,11 @@
+{
+  "operation": "fineliner_width",
+  "id": "fineliner-medium-width-3.27.3.0",
+  "evidence": {
+    "firmware": "3.27.3.0",
+    "binary_sha256": "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e",
+    "capture": ".build/reverse/3.27.3.0/validation-medium-colors-20260803/page/4650a4ab-4dba-413a-867f-ffa608d5c109.rm"
+  },
+  "thickness": "medium",
+  "native_output": 16
+}

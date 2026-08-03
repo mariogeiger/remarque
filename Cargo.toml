@@ -1,5 +1,10 @@
 [workspace]
-members = ["tablet-agent"]
+members = [
+    "app/core",
+    "app/tablet",
+    "reverse-engineering/native-observer",
+    "reverse-engineering/native-replay",
+]
 resolver = "3"
 
 [profile.release]

@@ -1,0 +1,12 @@
+[Unit]
+Description=Launch Remarque when its native home tile opens
+After=xochitl.service
+
+[Service]
+Type=simple
+ExecStart=/home/root/remarque/bin/launch-remarque-when-native-tile-opens
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

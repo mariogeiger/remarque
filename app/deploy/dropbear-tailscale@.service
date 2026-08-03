@@ -1,0 +1,13 @@
+[Unit]
+Description=SSH Per-Connection Server for Tailscale
+Wants=dropbearkey.service
+After=syslog.target dropbearkey.service
+
+[Service]
+Environment="DROPBEAR_ED25519KEY_DIR=/etc/dropbear"
+EnvironmentFile=-/etc/default/dropbear
+ExecCondition=sh -c 'cat /sys/devices/platform/lpgpr/secboot /sys/devices/platform/lpgpr/facmode | grep -e unlocked -e on'
+ExecStart=-/usr/sbin/dropbear -G root -i -r ${DROPBEAR_ED25519KEY_DIR}/dropbear_ed25519_host_key $DROPBEAR_EXTRA_ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+StandardInput=socket
+KillMode=process

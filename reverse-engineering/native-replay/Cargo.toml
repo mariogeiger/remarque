@@ -1,0 +1,17 @@
+[package]
+name = "remarque-native-replay"
+version = "0.2.0"
+edition = "2024"
+
+[dependencies]
+remarque-core = { path = "../../app/core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "summarize-native-stroke-trace"
+path = "src/bin/summarize_native_stroke_trace.rs"
+
+[[bin]]
+name = "compare-native-stroke-trace"
+path = "src/bin/compare_native_stroke_trace.rs"

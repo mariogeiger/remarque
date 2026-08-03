@@ -1,0 +1,109 @@
+{
+  "operation": "fineliner_samples",
+  "id": "fineliner-medium-samples-3.27.3.0",
+  "evidence": {
+    "firmware": "3.27.3.0",
+    "binary_sha256": "9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e",
+    "capture": "live breakpoint after 0x00ef7ac0 at 0x0084424c on 2026-08-03"
+  },
+  "thickness": "medium",
+  "scene_to_view_scale": 0.75,
+  "records": [
+    {
+      "sample": { "x": 140.00081, "y": 362.28818, "pressure": 0.02381362, "tilt_x": 0.48869222, "tilt_y": 0.122173056 },
+      "native_output": { "x": 140.00081, "y": 362.28818, "two_segment_distance_quarters": 0, "width_quarters": 16, "direction": 0, "pressure": 6 }
+    },
+    {
+      "sample": { "x": 140.10002, "y": 362.27902, "pressure": 0.040483154, "tilt_x": 0.48774973, "tilt_y": 0.1222516 },
+      "native_output": { "x": 140.10002, "y": 362.27902, "two_segment_distance_quarters": 0, "width_quarters": 16, "direction": 126, "pressure": 8 }
+    },
+    {
+      "sample": { "x": 140.34595, "y": 362.2568, "pressure": 0.05215183, "tilt_x": 0.48636743, "tilt_y": 0.1222948 },
+      "native_output": { "x": 140.34595, "y": 362.2568, "two_segment_distance_quarters": 1, "width_quarters": 16, "direction": 251, "pressure": 12 }
+    },
+    {
+      "sample": { "x": 140.7666, "y": 362.22134, "pressure": 0.078310005, "tilt_x": 0.48482177, "tilt_y": 0.12231856 },
+      "native_output": { "x": 140.7666, "y": 362.22134, "two_segment_distance_quarters": 3, "width_quarters": 16, "direction": 251, "pressure": 17 }
+    },
+    {
+      "sample": { "x": 141.18694, "y": 362.18277, "pressure": 0.1496227, "tilt_x": 0.48334336, "tilt_y": 0.12233163 },
+      "native_output": { "x": 141.18694, "y": 362.18277, "two_segment_distance_quarters": 3, "width_quarters": 16, "direction": 251, "pressure": 29 }
+    },
+    {
+      "sample": { "x": 141.52766, "y": 362.1514, "pressure": 0.21981001, "tilt_x": 0.48198044, "tilt_y": 0.12233881 },
+      "native_output": { "x": 141.52766, "y": 362.1514, "two_segment_distance_quarters": 3, "width_quarters": 16, "direction": 251, "pressure": 47 }
+    },
+    {
+      "sample": { "x": 141.7592, "y": 362.1301, "pressure": 0.2833633, "tilt_x": 0.4807596, "tilt_y": 0.122342765 },
+      "native_output": { "x": 141.7592, "y": 362.1301, "two_segment_distance_quarters": 2, "width_quarters": 16, "direction": 251, "pressure": 64 }
+    },
+    {
+      "sample": { "x": 141.90259, "y": 362.1169, "pressure": 0.33385494, "tilt_x": 0.47961685, "tilt_y": 0.12234494 },
+      "native_output": { "x": 141.90259, "y": 362.1169, "two_segment_distance_quarters": 1, "width_quarters": 16, "direction": 251, "pressure": 79 }
+    },
+    {
+      "sample": { "x": 141.98657, "y": 362.10934, "pressure": 0.37545496, "tilt_x": 0.4796167, "tilt_y": 0.12234613 },
+      "native_output": { "x": 141.98657, "y": 362.10934, "two_segment_distance_quarters": 1, "width_quarters": 16, "direction": 251, "pressure": 90 }
+    },
+    {
+      "sample": { "x": 142.26424, "y": 362.21814, "pressure": 0.40457496, "tilt_x": 0.4796166, "tilt_y": 0.12234679 },
+      "native_output": { "x": 142.26424, "y": 362.21814, "two_segment_distance_quarters": 1, "width_quarters": 16, "direction": 133, "pressure": 99 }
+    },
+    {
+      "sample": { "x": 142.86955, "y": 362.37857, "pressure": 0.42495897, "tilt_x": 0.47961658, "tilt_y": 0.12234715 },
+      "native_output": { "x": 142.86955, "y": 362.37857, "two_segment_distance_quarters": 3, "width_quarters": 16, "direction": 13, "pressure": 106 }
+    },
+    {
+      "sample": { "x": 143.6106, "y": 362.57263, "pressure": 0.4392278, "tilt_x": 0.47961655, "tilt_y": 0.122347355 },
+      "native_output": { "x": 143.6106, "y": 362.57263, "two_segment_distance_quarters": 5, "width_quarters": 16, "direction": 10, "pressure": 110 }
+    },
+    {
+      "sample": { "x": 144.403, "y": 362.77975, "pressure": 0.46110955, "tilt_x": 0.48016632, "tilt_y": 0.12234746 },
+      "native_output": { "x": 144.403, "y": 362.77975, "two_segment_distance_quarters": 6, "width_quarters": 16, "direction": 10, "pressure": 115 }
+    },
+    {
+      "sample": { "x": 145.23103, "y": 362.99475, "pressure": 0.47642678, "tilt_x": 0.4804687, "tilt_y": 0.12234752 },
+      "native_output": { "x": 145.23103, "y": 362.99475, "two_segment_distance_quarters": 6, "width_quarters": 16, "direction": 10, "pressure": 120 }
+    },
+    {
+      "sample": { "x": 146.09212, "y": 363.10767, "pressure": 0.48714885, "tilt_x": 0.480635, "tilt_y": 0.12234755 },
+      "native_output": { "x": 146.09212, "y": 363.10767, "two_segment_distance_quarters": 6, "width_quarters": 16, "direction": 8, "pressure": 123 }
+    },
+    {
+      "sample": { "x": 146.87434, "y": 363.1941, "pressure": 0.4946543, "tilt_x": 0.48072645, "tilt_y": 0.12234757 },
+      "native_output": { "x": 146.87434, "y": 363.1941, "two_segment_distance_quarters": 6, "width_quarters": 16, "direction": 5, "pressure": 125 }
+    },
+    {
+      "sample": { "x": 147.60986, "y": 363.3643, "pressure": 0.49990812, "tilt_x": 0.48077676, "tilt_y": 0.12234758 },
+      "native_output": { "x": 147.60986, "y": 363.3643, "two_segment_distance_quarters": 6, "width_quarters": 16, "direction": 7, "pressure": 127 }
+    },
+    {
+      "sample": { "x": 148.22632, "y": 363.5576, "pressure": 0.50358576, "tilt_x": 0.4808044, "tilt_y": 0.122347586 },
+      "native_output": { "x": 148.22632, "y": 363.5576, "two_segment_distance_quarters": 5, "width_quarters": 16, "direction": 11, "pressure": 128 }
+    },
+    {
+      "sample": { "x": 148.77515, "y": 363.65475, "pressure": 0.50616014, "tilt_x": 0.48081964, "tilt_y": 0.122347586 },
+      "native_output": { "x": 148.77515, "y": 363.65475, "two_segment_distance_quarters": 5, "width_quarters": 16, "direction": 10, "pressure": 129 }
+    },
+    {
+      "sample": { "x": 149.3553, "y": 363.72437, "pressure": 0.50796217, "tilt_x": 0.48082802, "tilt_y": 0.122347586 },
+      "native_output": { "x": 149.3553, "y": 363.72437, "two_segment_distance_quarters": 4, "width_quarters": 16, "direction": 6, "pressure": 129 }
+    },
+    {
+      "sample": { "x": 149.96362, "y": 363.76993, "pressure": 0.5092236, "tilt_x": 0.48130384, "tilt_y": 0.122347586 },
+      "native_output": { "x": 149.96362, "y": 363.76993, "two_segment_distance_quarters": 4, "width_quarters": 16, "direction": 4, "pressure": 130 }
+    },
+    {
+      "sample": { "x": 150.56477, "y": 363.79532, "pressure": 0.51010656, "tilt_x": 0.48156556, "tilt_y": 0.122347586 },
+      "native_output": { "x": 150.56477, "y": 363.79532, "two_segment_distance_quarters": 5, "width_quarters": 16, "direction": 2, "pressure": 130 }
+    },
+    {
+      "sample": { "x": 151.13843, "y": 363.80396, "pressure": 0.51072466, "tilt_x": 0.4817095, "tilt_y": 0.122347586 },
+      "native_output": { "x": 151.13843, "y": 363.80396, "two_segment_distance_quarters": 4, "width_quarters": 16, "direction": 1, "pressure": 130 }
+    },
+    {
+      "sample": { "x": 151.7011, "y": 363.7985, "pressure": 0.51115733, "tilt_x": 0.48178867, "tilt_y": 0.122347586 },
+      "native_output": { "x": 151.7011, "y": 363.7985, "two_segment_distance_quarters": 4, "width_quarters": 16, "direction": 128, "pressure": 130 }
+    }
+  ]
+}

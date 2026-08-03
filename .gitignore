@@ -1,6 +1,10 @@
 /target/
 /.build/
-/captures/
+captures/
 /dist/
+/reverse-engineering/readable/
+.env
+.env.*
+tailscaled.state
 .DS_Store
 *.ppm

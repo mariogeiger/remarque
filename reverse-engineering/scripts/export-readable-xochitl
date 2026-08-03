@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+ghidra_home=${GHIDRA_HOME:-"$workspace/.build/tools/ghidra_12.1.2_PUBLIC"}
+project_directory=${GHIDRA_PROJECT_DIRECTORY:-/var/tmp/remarque-ghidra-projects}
+project_name=${GHIDRA_PROJECT_NAME:-xochitl-3.27.3.0}
+program_name=${GHIDRA_PROGRAM_NAME:-xochitl}
+binary=${XOCHITL_BINARY:-"$workspace/.build/reverse/3.27.3.0/xochitl"}
+expected_sha256=9749880daa2f10844e77b560ec0ecddd1634d43eb328af637c7026edf3ef120e
+script_directory="$workspace/reverse-engineering/ghidra"
+manifest="$script_directory/recovered-symbols.tsv"
+signatures="$script_directory/recovered-signatures.tsv"
+output_directory="$workspace/reverse-engineering/readable/3.27.3.0"
+call_graph="$output_directory/call-graph.tsv"
+
+actual_sha256=$(sha256sum "$binary" | cut -d ' ' -f 1)
+if [ "$actual_sha256" != "$expected_sha256" ]; then
+    echo "unsupported Xochitl binary: $actual_sha256" >&2
+    exit 1
+fi
+
+exec memcap -h 8G -m 12G -s 1G \
+    "$ghidra_home/support/analyzeHeadless" \
+    "$project_directory" "$project_name" \
+    -noanalysis \
+    -process "$program_name" \
+    -scriptPath "$script_directory" \
+    -postScript ApplyRecoveredTypes.java "$signatures" \
+    -postScript ApplyRecoveredNames.java "$manifest" \
+    -postScript ExportRecoveredCallGraph.java "$manifest" "$call_graph" \
+    -postScript ExportRecoveredFunctions.java "$manifest" "$output_directory"
