@@ -2,6 +2,37 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.3.0 - 2026-08-03
+
+### Added
+
+- A private, single-chat Telegram service that receives PDFs and can return the
+  original document, current annotated page, or application status.
+- Telegram page navigation with independently persisted annotations per page.
+- One-finger edge swipes for discrete page turns, with the palm filter shared
+  by page navigation and two-finger zoom.
+- PDFium-backed multi-page display with an immutable source background and
+  separately persisted Remarque strokes.
+- Durable, atomic request/response exchange between the always-on transport and
+  graphical tablet process.
+- A device-independent, flattened one-page PDF exporter.
+
+### Changed
+
+- Product crates affected by document support are versioned at 0.3.0.
+- Starting a document operation activates Remarque without requiring SSH; the
+  Telegram daemon itself never owns the display.
+- Minimum PDF zoom now fits page width exactly; tall pages pan vertically and
+  out-of-page space is gray.
+
+### Security
+
+- The bot accepts updates from one configured chat only, bounds downloads to
+  50 MiB, sanitizes filenames, and requires its credential file to be mode
+  `0600`.
+- Telegram update offsets and local operations become durable only after their
+  effects succeed, avoiding silent loss across restarts.
+
 ## 0.2.0 - 2026-08-03
 
 ### Added

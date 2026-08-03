@@ -7,4 +7,6 @@
 - [Native reverse engineering](../reverse-engineering/README.md): observation tools and evidence.
 - [Xochitl findings](../reverse-engineering/xochitl.md): recovered native behavior.
 - [Core](../app/core/README.md): portable behavioral contracts.
+- [Document exchange](../app/document/README.md): PDF and durable mailbox contracts.
+- [Telegram service](../app/telegram-bot/README.md): private document transport.
 - [Native replay](../reverse-engineering/native-replay/README.md): differential validation.

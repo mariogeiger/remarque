@@ -6,5 +6,6 @@ captures/
 .env
 .env.*
 tailscaled.state
+telegram.json
 .DS_Store
 *.ppm

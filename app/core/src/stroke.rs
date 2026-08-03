@@ -1,13 +1,14 @@
 use crate::color::Color;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PenSample {
     pub x: f32,
     pub y: f32,
     pub pressure: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StrokePoint {
     pub x: f32,
     pub y: f32,
@@ -66,7 +67,7 @@ impl StrokePoint {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Stroke {
     pub points: Vec<StrokePoint>,
     pub color: Color,

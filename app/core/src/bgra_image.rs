@@ -170,6 +170,42 @@ impl BgraImage {
         copy
     }
 
+    pub fn copy_bgra_rectangle(
+        &mut self,
+        destination_x: usize,
+        destination_y: usize,
+        width: usize,
+        height: usize,
+        source_stride: usize,
+        source: &[u8],
+    ) -> Result<(), &'static str> {
+        let row_bytes = width
+            .checked_mul(4)
+            .ok_or("BGRA rectangle dimensions overflow")?;
+        let source_bytes = source_stride
+            .checked_mul(height)
+            .ok_or("BGRA source dimensions overflow")?;
+        if source_stride < row_bytes || source.len() < source_bytes {
+            return Err("BGRA source is smaller than the rectangle");
+        }
+        if destination_x
+            .checked_add(width)
+            .is_none_or(|right| right > self.width)
+            || destination_y
+                .checked_add(height)
+                .is_none_or(|bottom| bottom > self.height)
+        {
+            return Err("BGRA rectangle exceeds the destination image");
+        }
+        for row in 0..height {
+            let source_start = row * source_stride;
+            let destination_start = ((destination_y + row) * self.width + destination_x) * 4;
+            self.pixels[destination_start..destination_start + row_bytes]
+                .copy_from_slice(&source[source_start..source_start + row_bytes]);
+        }
+        Ok(())
+    }
+
     pub fn restore_rectangle(
         &mut self,
         x: usize,
@@ -253,5 +289,25 @@ mod tests {
     #[test]
     fn rejects_bgra_with_the_wrong_byte_count() {
         assert!(BgraImage::try_from_bgra(2, 2, vec![0; 15]).is_err());
+    }
+
+    #[test]
+    fn copies_strided_bgra_into_a_rectangle() {
+        let mut image = BgraImage::filled(3, 2, [255, 255, 255]);
+        image
+            .copy_bgra_rectangle(
+                1,
+                0,
+                2,
+                2,
+                12,
+                &[
+                    1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16, 99, 99,
+                    99, 99,
+                ],
+            )
+            .unwrap();
+        assert_eq!(image.pixel(1, 0), [1, 2, 3, 4]);
+        assert_eq!(image.pixel(2, 1), [13, 14, 15, 16]);
     }
 }

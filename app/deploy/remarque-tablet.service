@@ -6,7 +6,9 @@ Requires=dev-dri-card0.device
 
 [Service]
 Type=simple
+UMask=0077
 Environment="LD_LIBRARY_PATH=/home/root/remarque/lib:/usr/lib/plugins/scenegraph"
+Environment=REMARQUE_EXCHANGE_DIR=/home/root/remarque/data/exchange
 ExecStartPre=/bin/sh -c 'echo remarque-tablet > /sys/power/wake_lock 2>/dev/null || true'
 ExecStartPre=/bin/rm -f /tmp/epframebuffer.lock
 ExecStart=/home/root/remarque/bin/remarque-tablet

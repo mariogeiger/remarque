@@ -11,18 +11,19 @@ pub(crate) fn draw_viewport_indicators(
     image: &mut BgraImage,
     transform: ViewTransform,
     viewport: Size,
+    scene: Size,
 ) {
     let horizontal = viewport_indicator(
         transform.focal_point.x,
         transform.scale,
-        viewport.width,
+        scene.width,
         0.0,
         viewport.width,
     );
     let vertical = viewport_indicator(
         transform.focal_point.y,
         transform.scale,
-        viewport.height,
+        scene.height,
         0.0,
         viewport.height,
     );

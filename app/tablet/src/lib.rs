@@ -1,15 +1,23 @@
 #[cfg(feature = "takeover")]
 pub mod display;
 #[cfg(feature = "takeover")]
+pub mod document_requests;
+#[cfg(feature = "takeover")]
 mod draw_toolbar;
 #[cfg(feature = "takeover")]
 mod draw_viewport_indicators;
+#[cfg(any(feature = "takeover", test))]
+mod edge_page_swipe;
 #[cfg(target_os = "linux")]
 pub mod filter_touch_sequences;
 #[cfg(target_os = "linux")]
 pub mod input;
 #[cfg(feature = "takeover")]
 pub mod notebook;
+#[cfg(any(feature = "takeover", test))]
+mod page_coordinates;
+#[cfg(feature = "takeover")]
+mod pdfium;
 #[cfg(feature = "takeover")]
 mod quit_label;
 #[cfg(feature = "takeover")]

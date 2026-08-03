@@ -1,0 +1,16 @@
+[Unit]
+Description=Remarque private Telegram document service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+UMask=0077
+Environment=REMARQUE_TELEGRAM_CONFIG=/home/root/remarque/config/telegram.json
+Environment=REMARQUE_DATA_DIR=/home/root/remarque/data
+ExecStart=/home/root/remarque/bin/remarque-telegram-bot
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

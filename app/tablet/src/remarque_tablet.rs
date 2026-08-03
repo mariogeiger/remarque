@@ -1,10 +1,13 @@
+use remarque_document::DocumentExchange;
 use remarque_tablet::display::QuillDisplay;
+use remarque_tablet::document_requests::apply_oldest_document_request;
 use remarque_tablet::input::{PenDevice, TouchDevice};
 use remarque_tablet::notebook::Notebook;
 use remarque_tablet::screen_stream::start_screen_stream;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use std::io;
 use std::os::fd::RawFd;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -37,7 +40,13 @@ fn main() -> io::Result<()> {
     signal_hook::flag::register(SIGINT, Arc::clone(&stop))?;
 
     let display = Arc::new(QuillDisplay::open()?);
-    let mut notebook = Notebook::new(Arc::clone(&display))?;
+    let exchange = DocumentExchange::new(
+        std::env::var_os("REMARQUE_EXCHANGE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/home/root/remarque/data/exchange")),
+    );
+    exchange.prepare()?;
+    let mut notebook = Notebook::new(Arc::clone(&display), exchange.state_path())?;
     let _screen_stream = match start_screen_stream(display) {
         Ok(thread) => Some(thread),
         Err(error) => {
@@ -49,6 +58,7 @@ fn main() -> io::Result<()> {
     let mut touch = TouchDevice::open(notebook.width(), notebook.height())?;
 
     while !stop.load(Ordering::Relaxed) {
+        apply_oldest_document_request(&mut notebook, &exchange)?;
         poll_inputs(pen.raw_fd(), touch.raw_fd())?;
         for frame in pen.drain()? {
             if notebook.apply_pen_frame(frame)? {

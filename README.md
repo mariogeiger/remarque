@@ -17,7 +17,8 @@ its own interaction model and capabilities.
 - **Evidence before imitation.** Every claim about native behavior is tied to a
   hashed binary, controlled capture, or explicit decompilation path.
 - **Portable behavior, narrow adapters.** Drawing and geometry live in
-  `app/core`; evdev, Quill, and systemd remain in `app/tablet`.
+  `app/core`; document exchange and PDF export live in `app/document`; evdev,
+  PDFium, Quill, and systemd remain behind application adapters.
 - **One source of truth per concept.** Colors, strokes, raster images, and view
   transforms are shared data, not properties of one brush or UI.
 - **Differential confidence.** Recorded native fixtures test the same operations
@@ -25,3 +26,7 @@ its own interaction model and capabilities.
 
 Read the [project soul](SOUL.md), the [architecture](docs/architecture.md), and
 the [documentation index](docs/README.md).
+
+The private Telegram service can receive a PDF, open it in Remarque, return the
+immutable source, and export the current annotated page. Its bot credential is
+device configuration and never belongs in this repository.

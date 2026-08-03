@@ -1,5 +1,4 @@
 use crate::input::TouchFrame;
-use crate::view_transform::Point;
 
 #[derive(Default)]
 pub struct RejectPalmContactSequences {
@@ -7,14 +6,14 @@ pub struct RejectPalmContactSequences {
 }
 
 impl RejectPalmContactSequences {
-    pub fn accept_two_finger_positions(
+    pub fn accept_at_most_two_finger_points<'a>(
         &mut self,
-        frame: &TouchFrame,
+        frame: &'a TouchFrame,
         pen_proximity: bool,
-    ) -> Option<[Point; 2]> {
+    ) -> Option<&'a [crate::input::TouchPoint]> {
         if frame.points.is_empty() {
             self.rejected_until_release = false;
-            return None;
+            return Some(&frame.points);
         }
         if pen_proximity
             || frame.points.len() > 2
@@ -22,10 +21,10 @@ impl RejectPalmContactSequences {
         {
             self.rejected_until_release = true;
         }
-        if self.rejected_until_release || frame.points.len() != 2 {
+        if self.rejected_until_release {
             return None;
         }
-        Some([frame.points[0].position, frame.points[1].position])
+        Some(&frame.points)
     }
 }
 
@@ -33,6 +32,7 @@ impl RejectPalmContactSequences {
 mod tests {
     use super::*;
     use crate::input::TouchPoint;
+    use crate::view_transform::Point;
 
     fn frame(major_diameters: &[f64]) -> TouchFrame {
         TouchFrame {
@@ -52,11 +52,16 @@ mod tests {
     }
 
     #[test]
-    fn accepts_exactly_two_finger_contacts() {
+    fn accepts_one_or_two_finger_contacts() {
         let mut rejection = RejectPalmContactSequences::default();
         assert!(
             rejection
-                .accept_two_finger_positions(&frame(&[8.0, 11.0]), false)
+                .accept_at_most_two_finger_points(&frame(&[8.0]), false)
+                .is_some()
+        );
+        assert!(
+            rejection
+                .accept_at_most_two_finger_points(&frame(&[8.0, 11.0]), false)
                 .is_some()
         );
     }
@@ -66,18 +71,18 @@ mod tests {
         let mut rejection = RejectPalmContactSequences::default();
         assert!(
             rejection
-                .accept_two_finger_positions(&frame(&[8.0, 48.0]), false)
+                .accept_at_most_two_finger_points(&frame(&[8.0, 48.0]), false)
                 .is_none()
         );
         assert!(
             rejection
-                .accept_two_finger_positions(&frame(&[8.0, 9.0]), false)
+                .accept_at_most_two_finger_points(&frame(&[8.0, 9.0]), false)
                 .is_none()
         );
-        rejection.accept_two_finger_positions(&frame(&[]), false);
+        rejection.accept_at_most_two_finger_points(&frame(&[]), false);
         assert!(
             rejection
-                .accept_two_finger_positions(&frame(&[8.0, 9.0]), false)
+                .accept_at_most_two_finger_points(&frame(&[8.0, 9.0]), false)
                 .is_some()
         );
     }
@@ -87,14 +92,14 @@ mod tests {
         let mut pen_rejection = RejectPalmContactSequences::default();
         assert!(
             pen_rejection
-                .accept_two_finger_positions(&frame(&[8.0, 9.0]), true)
+                .accept_at_most_two_finger_points(&frame(&[8.0, 9.0]), true)
                 .is_none()
         );
 
         let mut contact_count_rejection = RejectPalmContactSequences::default();
         assert!(
             contact_count_rejection
-                .accept_two_finger_positions(&frame(&[8.0, 9.0, 10.0]), false)
+                .accept_at_most_two_finger_points(&frame(&[8.0, 9.0, 10.0]), false)
                 .is_none()
         );
     }

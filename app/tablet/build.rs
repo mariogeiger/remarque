@@ -25,6 +25,7 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=dylib=quill");
     println!("cargo:rustc-link-lib=dylib=qsgepaper");
+    println!("cargo:rustc-link-lib=dylib=pdfium");
     println!("cargo:rustc-link-arg=-Wl,-rpath,/home/root/remarque/lib:/usr/lib/plugins/scenegraph");
     if let Some(sysroot) = env::var_os("SDKTARGETSYSROOT") {
         println!(

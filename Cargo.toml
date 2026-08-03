@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "app/core",
+    "app/document",
     "app/tablet",
+    "app/telegram-bot",
     "reverse-engineering/native-observer",
     "reverse-engineering/native-replay",
 ]
