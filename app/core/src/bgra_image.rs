@@ -77,6 +77,10 @@ impl BgraImage {
         &self.pixels
     }
 
+    pub fn into_pixels(self) -> Vec<u8> {
+        self.pixels
+    }
+
     pub fn pixel(&self, x: usize, y: usize) -> [u8; 4] {
         let offset = (y * self.width + x) * 4;
         self.pixels[offset..offset + 4].try_into().unwrap()

@@ -13,24 +13,32 @@ pub struct DocumentRequest {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum DocumentRequestKind {
-    OpenPdf {
+    ImportPdf {
+        document_id: String,
         source_path: PathBuf,
-        display_name: String,
+        title: String,
     },
-    ExportCurrentPage {
+    OpenDocument {
+        document_id: String,
+    },
+    ListDocuments,
+    Export {
         destination_path: PathBuf,
+        scope: ExportScope,
     },
-    ChangePage {
-        delta: i32,
-    },
-    CloseDocument,
-    GetCurrentDocument,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct CurrentDocument {
-    pub source_path: PathBuf,
-    pub display_name: String,
+#[serde(rename_all = "snake_case")]
+pub enum ExportScope {
+    CurrentPage,
+    AllPages,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DocumentSummary {
+    pub document_id: String,
+    pub title: String,
     pub page_number: u32,
     pub page_count: u32,
 }
@@ -44,13 +52,19 @@ pub struct DocumentResponse {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum DocumentResponseKind {
-    Opened { document: CurrentDocument },
-    Exported { path: PathBuf },
-    PageChanged { document: CurrentDocument },
-    Closed,
-    CurrentDocument { document: CurrentDocument },
-    NoDocument,
-    Failed { message: String },
+    Opened {
+        document: DocumentSummary,
+    },
+    Exported {
+        path: PathBuf,
+    },
+    Documents {
+        active_document_id: String,
+        documents: Vec<DocumentSummary>,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 pub struct PendingDocumentRequest {
@@ -127,8 +141,8 @@ impl DocumentExchange {
         Ok(Some(response))
     }
 
-    pub fn state_path(&self) -> PathBuf {
-        self.root.join("current-notebook.json")
+    pub fn library_state_path(&self) -> PathBuf {
+        self.root.join("document-library.json")
     }
 
     fn request_directory(&self) -> PathBuf {
@@ -198,18 +212,27 @@ mod tests {
         let exchange = DocumentExchange::new(&root);
         let request = DocumentRequest {
             id: 42,
-            kind: DocumentRequestKind::GetCurrentDocument,
+            kind: DocumentRequestKind::ListDocuments,
         };
         exchange.submit(&request).unwrap();
         let pending = exchange.oldest_pending().unwrap().unwrap();
         assert_eq!(pending.request, request);
         exchange
-            .complete(pending, DocumentResponseKind::NoDocument)
+            .complete(
+                pending,
+                DocumentResponseKind::Documents {
+                    active_document_id: "notebook-1".to_owned(),
+                    documents: Vec::new(),
+                },
+            )
             .unwrap();
         assert!(exchange.oldest_pending().unwrap().is_none());
         assert_eq!(
             exchange.take_response(42).unwrap().unwrap().kind,
-            DocumentResponseKind::NoDocument
+            DocumentResponseKind::Documents {
+                active_document_id: "notebook-1".to_owned(),
+                documents: Vec::new(),
+            }
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -220,7 +243,7 @@ mod tests {
         let exchange = DocumentExchange::new(&root);
         let request = DocumentRequest {
             id: 9,
-            kind: DocumentRequestKind::GetCurrentDocument,
+            kind: DocumentRequestKind::ListDocuments,
         };
         exchange.submit(&request).unwrap();
         exchange.submit(&request).unwrap();

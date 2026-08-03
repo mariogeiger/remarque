@@ -31,7 +31,7 @@ Product intent                    Native behavior worth preserving
 | Area | Owns | Must not own |
 | --- | --- | --- |
 | `app/core` | Colors, strokes, geometry, raster images, rendering, erasure, transforms | evdev, DRM, Quill, systemd, application UI |
-| `app/document` | Durable document request/response protocol, flattened PDF writing | Telegram, PDF rendering, UI, hardware |
+| `app/document` | Durable library protocol, content IDs, flattened PDF writing | Telegram, PDF rendering, UI, hardware |
 | `app/tablet` | Hardware adapters, PDFium rendering, notebook interaction, presentation, in-process screen streaming, UI takeover | Decompiled source or capture logic |
 | `app/telegram-bot` | One-chat Telegram transport, private credentials, service activation | Drawing, rendering, graphical UI |
 | `app/deploy` | Explicit service definitions for the tablet | Hidden installation logic |
@@ -53,17 +53,26 @@ internals.
 
 ## Document data direction
 
-An incoming PDF is immutable. `remarque-tablet` rasterizes its current page as
-the scene background and persists a separate Remarque stroke layer for every
-page. Zoom changes only the view transform; strokes stay in scene coordinates.
-`/page` renders the untransformed scene without the toolbar and flattens it into
-a new one-page PDF. A blank page is the same page object without a PDF
-background. `/document` returns the untouched source only while it is open.
+The persistent model is `Document { pages, current_page }` and
+`Page { optional_background, strokes }`. A blank notebook and an imported PDF
+therefore use identical navigation, insertion, drawing, erasure, and export
+operations. An incoming PDF remains immutable; its pages are optional scene
+backgrounds beneath separately persisted strokes. Zoom changes only the view
+transform, while strokes stay in scene coordinates.
+
+Current-page export flattens one page without the toolbar. Whole-document
+export performs that operation page by page and writes a multi-page PDF while
+holding only one rasterized page in memory. Distinct source page dimensions
+are preserved.
 
 Each PDF page is a separate scene. At minimum zoom its PDF width equals the
 screen width; tall pages pan vertically, while a short or landscape page leaves
 the out-of-page area gray. Two fingers pan and zoom within the page. A
 one-finger inward swipe from the left or right edge changes page.
+
+The tablet library is available directly on screen. The Telegram surface keeps
+only two commands: `/library` opens a document remotely and `/export` chooses a
+current-page or whole-document export. Sending a PDF imports and opens it.
 
 The Telegram daemon and graphical process have no shared memory or lifecycle.
 They exchange atomically renamed JSON requests and responses. A request remains

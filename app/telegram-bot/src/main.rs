@@ -3,8 +3,8 @@ mod telegram_api;
 
 use config::TelegramConfig;
 use remarque_document::{
-    CurrentDocument, DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse,
-    DocumentResponseKind, read_json, write_json_atomically,
+    DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse, DocumentResponseKind,
+    DocumentSummary, ExportScope, pdf_content_id, read_json, write_json_atomically,
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -14,20 +14,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
-use telegram_api::{TelegramApi, TelegramDocument, TelegramMessage, TelegramUpdate};
+use telegram_api::{
+    TelegramApi, TelegramButton, TelegramCallbackQuery, TelegramDocument, TelegramMessage,
+    TelegramUpdate,
+};
 
-const HELP: &str = "Envoie-moi un PDF : je l’ouvre dans Remarque. /page renvoie la page actuelle, /document l’original, /next et /previous changent de page, /close revient à la page blanche, /open rouvre le dernier PDF.";
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ReceivedPdf {
-    path: PathBuf,
-    display_name: String,
-}
+const HELP: &str = "Envoie-moi un PDF pour l’importer. /library choisit le document affiché et /export renvoie la page actuelle ou toutes les pages annotées.";
+const DOCUMENTS_PER_MESSAGE: usize = 8;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct BotState {
     next_update_id: Option<i64>,
-    last_pdf: Option<ReceivedPdf>,
 }
 
 struct BotRuntime {
@@ -76,7 +73,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if first_start {
         runtime.api.send_message(
             runtime.allowed_chat_id,
-            "Remarque est en ligne. Envoie-moi un PDF pour l’ouvrir sur la tablette.",
+            "Remarque est en ligne. Envoie-moi un PDF pour l’importer.",
             None,
         )?;
         runtime.save_state()?;
@@ -115,6 +112,9 @@ impl BotRuntime {
     }
 
     fn apply_update(&mut self, update: TelegramUpdate) -> Result<(), Box<dyn Error>> {
+        if let Some(callback) = update.callback_query {
+            return self.apply_callback(update.update_id, callback);
+        }
         let Some(message) = update.message else {
             return Ok(());
         };
@@ -122,29 +122,43 @@ impl BotRuntime {
             return Ok(());
         }
         if let Some(document) = &message.document {
-            return self.receive_pdf(update.update_id, &message, document);
+            return self.import_pdf(update.update_id, &message, document);
         }
-        let command = message
-            .text
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .split('@')
-            .next()
-            .unwrap_or("");
-        match command {
-            "/open" => self.reopen_last_pdf(update.update_id, &message),
-            "/page" => self.send_current_page(update.update_id, &message),
-            "/document" => self.send_current_document(update.update_id, &message),
-            "/next" => self.change_page(update.update_id, &message, 1),
-            "/previous" => self.change_page(update.update_id, &message, -1),
-            "/close" => self.close_document(update.update_id, &message),
-            "/status" => self.send_status(update.update_id, &message),
+        match telegram_command(&message.text) {
+            "/library" => self.send_library(update.update_id, &message, 0),
+            "/export" => self.send_export_choices(&message),
             _ => self.reply(&message, HELP),
         }
     }
 
-    fn receive_pdf(
+    fn apply_callback(
+        &mut self,
+        update_id: i64,
+        callback: TelegramCallbackQuery,
+    ) -> Result<(), Box<dyn Error>> {
+        let Some(message) = callback.message else {
+            return Ok(());
+        };
+        if message.chat.id != self.allowed_chat_id {
+            return Ok(());
+        }
+        self.api.answer_callback_query(&callback.id)?;
+        let data = callback.data.as_deref().unwrap_or("");
+        if let Some(document_id) = data.strip_prefix("open:") {
+            return self.open_document(update_id, &message, document_id);
+        }
+        if let Some(page) = data.strip_prefix("library:") {
+            let page = page.parse::<usize>().unwrap_or(0);
+            return self.send_library(update_id, &message, page);
+        }
+        match data {
+            "export:page" => self.export(update_id, &message, ExportScope::CurrentPage),
+            "export:all" => self.export(update_id, &message, ExportScope::AllPages),
+            _ => self.reply(&message, HELP),
+        }
+    }
+
+    fn import_pdf(
         &mut self,
         update_id: i64,
         message: &TelegramMessage,
@@ -153,231 +167,220 @@ impl BotRuntime {
         if !metadata_describes_pdf(document) {
             return self.reply(message, "Je n’accepte que les fichiers PDF.");
         }
-        let display_name = safe_pdf_name(document.file_name.as_deref().unwrap_or("document.pdf"));
-        let destination = self
+        let temporary = self
             .data_root
             .join("incoming")
-            .join(format!("{update_id}-{display_name}"));
-        if let Err(error) = self.api.download_pdf(document, &destination) {
+            .join(format!(".download-{update_id}.pdf"));
+        if let Err(error) = self.api.download_pdf(document, &temporary) {
             return self.reply(message, &format!("PDF refusé : {error}"));
         }
-        if !has_pdf_signature(&destination)? {
-            fs::remove_file(&destination)?;
+        if !has_pdf_signature(&temporary)? {
+            fs::remove_file(&temporary)?;
             return self.reply(message, "Le fichier reçu n’est pas un PDF valide.");
         }
-        let received = ReceivedPdf {
-            path: destination.clone(),
-            display_name,
-        };
-        if self.open_pdf(update_id as u64 * 10 + 1, &received, message)? {
-            if let Some(previous) = self.state.last_pdf.replace(received) {
-                let _ = fs::remove_file(previous.path);
-            }
-        } else {
-            let _ = fs::remove_file(&destination);
-        }
-        Ok(())
-    }
-
-    fn reopen_last_pdf(
-        &mut self,
-        update_id: i64,
-        message: &TelegramMessage,
-    ) -> Result<(), Box<dyn Error>> {
-        let Some(received) = self.state.last_pdf.clone() else {
-            return self.reply(message, "Aucun PDF reçu pour le moment.");
-        };
-        self.open_pdf(update_id as u64 * 10 + 1, &received, message)?;
-        Ok(())
-    }
-
-    fn open_pdf(
-        &mut self,
-        request_id: u64,
-        received: &ReceivedPdf,
-        message: &TelegramMessage,
-    ) -> Result<bool, Box<dyn Error>> {
-        ensure_tablet_running()?;
-        let response = self.request_document(
-            DocumentRequest {
-                id: request_id,
-                kind: DocumentRequestKind::OpenPdf {
-                    source_path: received.path.clone(),
-                    display_name: received.display_name.clone(),
-                },
-            },
-            Duration::from_secs(30),
-        )?;
-        match response.kind {
-            DocumentResponseKind::Opened { document } => {
-                self.reply(
-                    message,
-                    &format!(
-                        "Ouvert sur la tablette : {} ({} page{}).",
-                        document.display_name,
-                        document.page_count,
-                        if document.page_count == 1 { "" } else { "s" }
-                    ),
-                )?;
-                Ok(true)
-            }
-            DocumentResponseKind::Failed { message: failure } => {
-                self.reply(message, &format!("Impossible d’ouvrir le PDF : {failure}"))?;
-                Ok(false)
-            }
-            _ => Err(io::Error::other("unexpected response to open PDF").into()),
-        }
-    }
-
-    fn send_current_page(
-        &mut self,
-        update_id: i64,
-        message: &TelegramMessage,
-    ) -> Result<(), Box<dyn Error>> {
-        ensure_tablet_running()?;
-        let destination = self
+        let document_id = pdf_content_id(&temporary)?;
+        let source_path = self
             .data_root
-            .join("exports")
-            .join(format!("page-{update_id}.pdf"));
+            .join("incoming")
+            .join(format!("{document_id}.pdf"));
+        if source_path.exists() {
+            fs::remove_file(&temporary)?;
+        } else {
+            fs::rename(&temporary, &source_path)?;
+        }
+        ensure_tablet_running()?;
         let response = self.request_document(
             DocumentRequest {
-                id: update_id as u64 * 10 + 2,
-                kind: DocumentRequestKind::ExportCurrentPage {
-                    destination_path: destination,
+                id: request_id(update_id, 5),
+                kind: DocumentRequestKind::ImportPdf {
+                    document_id,
+                    source_path,
+                    title: display_title(document.file_name.as_deref()),
                 },
             },
             Duration::from_secs(30),
         )?;
         match response.kind {
-            DocumentResponseKind::Exported { path } => {
-                self.api.send_document(
-                    self.allowed_chat_id,
-                    &path,
-                    "remarque-page.pdf",
-                    "Page actuelle, aplatie en PDF.",
-                    Some(message.message_id),
-                )?;
-                fs::remove_file(path)?;
-            }
-            DocumentResponseKind::Failed { message: failure } => {
-                self.reply(message, &format!("Export impossible : {failure}"))?
-            }
-            _ => return Err(io::Error::other("unexpected response to page export").into()),
-        }
-        Ok(())
-    }
-
-    fn send_current_document(
-        &mut self,
-        update_id: i64,
-        message: &TelegramMessage,
-    ) -> Result<(), Box<dyn Error>> {
-        ensure_tablet_running()?;
-        let response = self.current_document(update_id as u64 * 10 + 3)?;
-        match response {
-            Some(document) => self.api.send_document(
-                self.allowed_chat_id,
-                &document.source_path,
-                &safe_pdf_name(&document.display_name),
-                "PDF original, sans modification.",
-                Some(message.message_id),
-            )?,
-            None => self.reply(message, "Aucun PDF n’est ouvert.")?,
-        }
-        Ok(())
-    }
-
-    fn send_status(
-        &mut self,
-        update_id: i64,
-        message: &TelegramMessage,
-    ) -> Result<(), Box<dyn Error>> {
-        if !tablet_is_running()? {
-            return self.reply(
-                message,
-                "Remarque est arrêté ; l’application native est affichée.",
-            );
-        }
-        match self.current_document(update_id as u64 * 10 + 4)? {
-            Some(document) => self.reply(
+            DocumentResponseKind::Opened { document } => self.reply(
                 message,
                 &format!(
-                    "Remarque est actif. {} — page {}/{}.",
-                    document.display_name, document.page_number, document.page_count
+                    "{} ouvert — page {}/{}.",
+                    document.title, document.page_number, document.page_count
                 ),
             ),
-            None => self.reply(message, "Remarque est actif sur une page blanche."),
+            DocumentResponseKind::Failed { message: failure } => {
+                self.reply(message, &format!("Import impossible : {failure}"))
+            }
+            _ => Err(io::Error::other("unexpected response to PDF import").into()),
         }
     }
 
-    fn change_page(
-        &mut self,
+    fn send_library(
+        &self,
         update_id: i64,
         message: &TelegramMessage,
-        delta: i32,
+        requested_page: usize,
     ) -> Result<(), Box<dyn Error>> {
         ensure_tablet_running()?;
         let response = self.request_document(
             DocumentRequest {
-                id: update_id as u64 * 10 + if delta > 0 { 5 } else { 6 },
-                kind: DocumentRequestKind::ChangePage { delta },
+                id: request_id(update_id, 1),
+                kind: DocumentRequestKind::ListDocuments,
+            },
+            Duration::from_secs(10),
+        )?;
+        let (active_document_id, documents) = match response.kind {
+            DocumentResponseKind::Documents {
+                active_document_id,
+                documents,
+            } => (active_document_id, documents),
+            DocumentResponseKind::Failed { message: failure } => {
+                return self.reply(message, &format!("Bibliothèque indisponible : {failure}"));
+            }
+            _ => return Err(io::Error::other("unexpected response to document list").into()),
+        };
+        let page_count = documents.len().div_ceil(DOCUMENTS_PER_MESSAGE).max(1);
+        let page = requested_page.min(page_count - 1);
+        let first = page * DOCUMENTS_PER_MESSAGE;
+        let mut buttons = documents[first..documents.len().min(first + DOCUMENTS_PER_MESSAGE)]
+            .iter()
+            .map(|document| {
+                vec![TelegramButton {
+                    text: document_button_text(
+                        document,
+                        document.document_id == active_document_id,
+                    ),
+                    callback_data: format!("open:{}", document.document_id),
+                }]
+            })
+            .collect::<Vec<_>>();
+        let mut navigation = Vec::new();
+        if page > 0 {
+            navigation.push(TelegramButton {
+                text: "‹".to_owned(),
+                callback_data: format!("library:{}", page - 1),
+            });
+        }
+        if page + 1 < page_count {
+            navigation.push(TelegramButton {
+                text: "›".to_owned(),
+                callback_data: format!("library:{}", page + 1),
+            });
+        }
+        if !navigation.is_empty() {
+            buttons.push(navigation);
+        }
+        self.api.send_message_with_buttons(
+            self.allowed_chat_id,
+            &format!("Bibliothèque — {}/{}", page + 1, page_count),
+            Some(message.message_id),
+            &buttons,
+        )?;
+        Ok(())
+    }
+
+    fn send_export_choices(&self, message: &TelegramMessage) -> Result<(), Box<dyn Error>> {
+        self.api.send_message_with_buttons(
+            self.allowed_chat_id,
+            "Que veux-tu exporter ?",
+            Some(message.message_id),
+            &[
+                vec![TelegramButton {
+                    text: "Page actuelle".to_owned(),
+                    callback_data: "export:page".to_owned(),
+                }],
+                vec![TelegramButton {
+                    text: "Toutes les pages".to_owned(),
+                    callback_data: "export:all".to_owned(),
+                }],
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn open_document(
+        &self,
+        update_id: i64,
+        message: &TelegramMessage,
+        document_id: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        ensure_tablet_running()?;
+        let response = self.request_document(
+            DocumentRequest {
+                id: request_id(update_id, 2),
+                kind: DocumentRequestKind::OpenDocument {
+                    document_id: document_id.to_owned(),
+                },
             },
             Duration::from_secs(20),
         )?;
         match response.kind {
-            DocumentResponseKind::PageChanged { document } => self.reply(
+            DocumentResponseKind::Opened { document } => self.reply(
                 message,
                 &format!(
-                    "Page {}/{} affichée.",
-                    document.page_number, document.page_count
+                    "{} ouvert — page {}/{}.",
+                    document.title, document.page_number, document.page_count
                 ),
             ),
-            DocumentResponseKind::Failed { message: failure } => self.reply(
-                message,
-                &format!("Changement de page impossible : {failure}"),
-            ),
-            _ => Err(io::Error::other("unexpected page-change response").into()),
+            DocumentResponseKind::Failed { message: failure } => {
+                self.reply(message, &format!("Ouverture impossible : {failure}"))
+            }
+            _ => Err(io::Error::other("unexpected response to document open").into()),
         }
     }
 
-    fn current_document(&self, request_id: u64) -> Result<Option<CurrentDocument>, Box<dyn Error>> {
-        let response = self.request_document(
-            DocumentRequest {
-                id: request_id,
-                kind: DocumentRequestKind::GetCurrentDocument,
-            },
-            Duration::from_secs(10),
-        )?;
-        match response.kind {
-            DocumentResponseKind::CurrentDocument { document } => Ok(Some(document)),
-            DocumentResponseKind::NoDocument => Ok(None),
-            DocumentResponseKind::Failed { message } => Err(io::Error::other(message).into()),
-            _ => Err(io::Error::other("unexpected current-document response").into()),
-        }
-    }
-
-    fn close_document(
-        &mut self,
+    fn export(
+        &self,
         update_id: i64,
         message: &TelegramMessage,
+        scope: ExportScope,
     ) -> Result<(), Box<dyn Error>> {
         ensure_tablet_running()?;
+        let suffix = match scope {
+            ExportScope::CurrentPage => 3,
+            ExportScope::AllPages => 4,
+        };
+        let destination = self
+            .data_root
+            .join("exports")
+            .join(format!("export-{update_id}.pdf"));
         let response = self.request_document(
             DocumentRequest {
-                id: update_id as u64 * 10 + 7,
-                kind: DocumentRequestKind::CloseDocument,
+                id: request_id(update_id, suffix),
+                kind: DocumentRequestKind::Export {
+                    destination_path: destination,
+                    scope: scope.clone(),
+                },
             },
-            Duration::from_secs(10),
+            match scope {
+                ExportScope::CurrentPage => Duration::from_secs(30),
+                ExportScope::AllPages => Duration::from_secs(180),
+            },
         )?;
         match response.kind {
-            DocumentResponseKind::Closed => {
-                self.reply(message, "PDF fermé. La page blanche est affichée.")
+            DocumentResponseKind::Exported { path } => {
+                let (file_name, caption) = match scope {
+                    ExportScope::CurrentPage => {
+                        ("remarque-page.pdf", "Page actuelle, aplatie en PDF.")
+                    }
+                    ExportScope::AllPages => {
+                        ("remarque-document.pdf", "Toutes les pages annotées.")
+                    }
+                };
+                self.api.send_document(
+                    self.allowed_chat_id,
+                    &path,
+                    file_name,
+                    caption,
+                    Some(message.message_id),
+                )?;
+                let _ = fs::remove_file(path);
+                Ok(())
             }
-            DocumentResponseKind::NoDocument => self.reply(message, "Aucun PDF n’est ouvert."),
             DocumentResponseKind::Failed { message: failure } => {
-                self.reply(message, &format!("Fermeture impossible : {failure}"))
+                self.reply(message, &format!("Export impossible : {failure}"))
             }
-            _ => Err(io::Error::other("unexpected close-document response").into()),
+            _ => Err(io::Error::other("unexpected response to export").into()),
         }
     }
 
@@ -414,6 +417,19 @@ impl BotRuntime {
     }
 }
 
+fn request_id(update_id: i64, suffix: u64) -> u64 {
+    update_id as u64 * 10 + suffix
+}
+
+fn telegram_command(text: &str) -> &str {
+    text.split_whitespace()
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next()
+        .unwrap_or("")
+}
+
 fn metadata_describes_pdf(document: &TelegramDocument) -> bool {
     document.mime_type.as_deref() == Some("application/pdf")
         || document
@@ -428,30 +444,31 @@ fn has_pdf_signature(path: &Path) -> io::Result<bool> {
     Ok(read == signature.len() && &signature == b"%PDF-")
 }
 
-fn safe_pdf_name(name: &str) -> String {
-    let leaf = Path::new(name)
-        .file_name()
+fn display_title(file_name: Option<&str>) -> String {
+    let leaf = file_name
+        .and_then(|name| Path::new(name).file_name())
         .and_then(|name| name.to_str())
-        .unwrap_or("document.pdf");
-    let mut safe = leaf
+        .unwrap_or("Document PDF");
+    let title = leaf
         .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
+        .filter(|character| !character.is_control())
         .take(120)
         .collect::<String>();
-    if !safe.to_ascii_lowercase().ends_with(".pdf") {
-        safe.push_str(".pdf");
-    }
-    if safe == ".pdf" {
-        "document.pdf".to_owned()
+    if title.is_empty() {
+        "Document PDF".to_owned()
     } else {
-        safe
+        title
     }
+}
+
+fn document_button_text(document: &DocumentSummary, active: bool) -> String {
+    format!(
+        "{}{} · {}/{}",
+        if active { "✓ " } else { "" },
+        document.title,
+        document.page_number,
+        document.page_count
+    )
 }
 
 fn ensure_tablet_running() -> io::Result<()> {
@@ -467,21 +484,17 @@ fn ensure_tablet_running() -> io::Result<()> {
     }
 }
 
-fn tablet_is_running() -> io::Result<bool> {
-    Ok(Command::new("systemctl")
-        .args(["is-active", "--quiet", "remarque-tablet.service"])
-        .status()?
-        .success())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn file_names_cannot_escape_the_incoming_directory() {
-        assert_eq!(safe_pdf_name("../../hello world.pdf"), "hello_world.pdf");
-        assert_eq!(safe_pdf_name("notes"), "notes.pdf");
+    fn display_title_cannot_escape_or_hide_control_characters() {
+        assert_eq!(
+            display_title(Some("../../hello world.pdf")),
+            "hello world.pdf"
+        );
+        assert_eq!(display_title(Some("bad\nname.pdf")), "badname.pdf");
     }
 
     #[test]

@@ -46,7 +46,7 @@ fn main() -> io::Result<()> {
             .unwrap_or_else(|| PathBuf::from("/home/root/remarque/data/exchange")),
     );
     exchange.prepare()?;
-    let mut notebook = Notebook::new(Arc::clone(&display), exchange.state_path())?;
+    let mut notebook = Notebook::new(Arc::clone(&display), exchange.library_state_path())?;
     let _screen_stream = match start_screen_stream(display) {
         Ok(thread) => Some(thread),
         Err(error) => {

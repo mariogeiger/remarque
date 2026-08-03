@@ -1,8 +1,13 @@
+mod content_id;
 mod exchange;
 mod write_pdf;
 
+pub use content_id::pdf_content_id;
 pub use exchange::{
-    CurrentDocument, DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse,
-    DocumentResponseKind, PendingDocumentRequest, read_json, write_json_atomically,
+    DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse, DocumentResponseKind,
+    DocumentSummary, ExportScope, PendingDocumentRequest, read_json, write_json_atomically,
 };
-pub use write_pdf::write_bgra_page_as_pdf;
+pub use write_pdf::{
+    OwnedRasterPdfPage, RasterPdfPage, write_bgra_page_as_pdf, write_bgra_pages_as_pdf,
+    write_generated_bgra_pages_as_pdf,
+};

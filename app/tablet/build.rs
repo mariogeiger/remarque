@@ -1,10 +1,27 @@
-use std::env;
 use std::path::PathBuf;
+use std::{env, fs};
 
 fn main() {
     if env::var_os("CARGO_FEATURE_TAKEOVER").is_none() {
         return;
     }
+
+    println!("cargo:rerun-if-env-changed=REMARQUE_UI_FONT");
+    let font = env::var_os("REMARQUE_UI_FONT")
+        .map(PathBuf::from)
+        .or_else(|| {
+            [
+                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|path| path.exists())
+        })
+        .expect("set REMARQUE_UI_FONT to a readable TrueType font");
+    println!("cargo:rerun-if-changed={}", font.display());
+    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("ui-font.ttf");
+    fs::copy(font, output).expect("copy Remarque UI font");
 
     let repository = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .parent()

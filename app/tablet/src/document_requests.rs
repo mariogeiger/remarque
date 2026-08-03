@@ -10,32 +10,31 @@ pub fn apply_oldest_document_request(
         return Ok(());
     };
     let result = match &pending.request.kind {
-        DocumentRequestKind::OpenPdf {
+        DocumentRequestKind::ImportPdf {
+            document_id,
             source_path,
-            display_name,
+            title,
         } => notebook
-            .open_pdf(source_path, display_name.clone())
+            .import_pdf(document_id.clone(), source_path, title.clone())
             .map(|document| DocumentResponseKind::Opened { document }),
-        DocumentRequestKind::ExportCurrentPage { destination_path } => notebook
-            .export_current_page(destination_path)
-            .map(|()| DocumentResponseKind::Exported {
+        DocumentRequestKind::OpenDocument { document_id } => notebook
+            .open_document(document_id)
+            .map(|document| DocumentResponseKind::Opened { document }),
+        DocumentRequestKind::ListDocuments => {
+            let (active_document_id, documents) = notebook.documents();
+            Ok(DocumentResponseKind::Documents {
+                active_document_id,
+                documents,
+            })
+        }
+        DocumentRequestKind::Export {
+            destination_path,
+            scope,
+        } => notebook.export(destination_path, scope.clone()).map(|()| {
+            DocumentResponseKind::Exported {
                 path: destination_path.clone(),
-            }),
-        DocumentRequestKind::ChangePage { delta } => notebook
-            .change_page(*delta)
-            .map(|document| DocumentResponseKind::PageChanged { document }),
-        DocumentRequestKind::CloseDocument => notebook.close_pdf().map(|closed| {
-            if closed {
-                DocumentResponseKind::Closed
-            } else {
-                DocumentResponseKind::NoDocument
             }
         }),
-        DocumentRequestKind::GetCurrentDocument => Ok(notebook
-            .current_document()
-            .map_or(DocumentResponseKind::NoDocument, |document| {
-                DocumentResponseKind::CurrentDocument { document }
-            })),
     };
     let response = result.unwrap_or_else(|error| DocumentResponseKind::Failed {
         message: error.to_string(),

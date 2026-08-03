@@ -1,5 +1,6 @@
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
+use crate::draw_text::draw_text;
 use crate::fineliner::FinelinerThickness;
 use crate::notebook::DrawingTool;
 use crate::quit_label;
@@ -13,7 +14,8 @@ pub(crate) fn draw_toolbar(
     selected_tool: DrawingTool,
     thickness: FinelinerThickness,
     color: Color,
-    document_open: bool,
+    page_number: u32,
+    page_count: u32,
 ) {
     const BACKGROUND: [u8; 3] = [0xff, 0xff, 0xff];
     const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
@@ -94,7 +96,17 @@ pub(crate) fn draw_toolbar(
         draw_color_swatch(image, x, swatch, swatch == color, SELECTED, PANEL);
     }
     draw_toolbar_separator(image, 1008);
-    draw_close_document_button(image, document_open, PANEL);
+    draw_text(
+        image,
+        1028,
+        72,
+        &format!("{page_number}/{page_count}"),
+        24,
+        78,
+        [0x55, 0x55, 0x52],
+    );
+    draw_library_button(image, PANEL);
+    draw_add_page_button(image, PANEL);
     image.fill_rounded_rectangle(
         toolbar::QUIT_BUTTON_X,
         toolbar::BUTTON_Y,
@@ -106,42 +118,35 @@ pub(crate) fn draw_toolbar(
     draw_quit_label(image);
 }
 
-fn draw_close_document_button(image: &mut BgraImage, document_open: bool, panel_rgb: [u8; 3]) {
-    let ink = if document_open {
-        [0x35, 0x35, 0x34]
-    } else {
-        [0xb8, 0xb6, 0xb0]
-    };
+fn draw_library_button(image: &mut BgraImage, panel_rgb: [u8; 3]) {
     draw_toolbar_button(
         image,
-        toolbar::CLOSE_BUTTON_X,
-        toolbar::CLOSE_BUTTON_WIDTH,
+        toolbar::LIBRARY_BUTTON_X,
+        toolbar::LIBRARY_BUTTON_WIDTH,
         false,
         panel_rgb,
         panel_rgb,
     );
-    let x = toolbar::CLOSE_BUTTON_X;
-    image.fill_rounded_rectangle(x + 43, 35, 42, 50, 5.0, ink);
-    image.fill_rounded_rectangle(x + 47, 39, 34, 42, 3.0, panel_rgb);
-    let point = |x: f32, y: f32| FinelinerRasterPoint { x, y, width: 5.0 };
-    render_fineliner_raster_points(
+    let x = toolbar::LIBRARY_BUTTON_X;
+    image.fill_rounded_rectangle(x + 26, 47, 68, 38, 7.0, [0x38, 0x38, 0x36]);
+    image.fill_rounded_rectangle(x + 31, 52, 58, 28, 4.0, panel_rgb);
+    image.fill_rounded_rectangle(x + 28, 39, 32, 15, 5.0, [0x38, 0x38, 0x36]);
+}
+
+fn draw_add_page_button(image: &mut BgraImage, panel_rgb: [u8; 3]) {
+    draw_toolbar_button(
         image,
-        &[point(x as f32 + 76.0, 62.0), point(x as f32 + 98.0, 84.0)],
-        if document_open {
-            Color::Black
-        } else {
-            Color::Gray
-        },
+        toolbar::ADD_PAGE_BUTTON_X,
+        toolbar::ADD_PAGE_BUTTON_WIDTH,
+        false,
+        panel_rgb,
+        panel_rgb,
     );
-    render_fineliner_raster_points(
-        image,
-        &[point(x as f32 + 98.0, 62.0), point(x as f32 + 76.0, 84.0)],
-        if document_open {
-            Color::Black
-        } else {
-            Color::Gray
-        },
-    );
+    let x = toolbar::ADD_PAGE_BUTTON_X;
+    image.fill_rounded_rectangle(x + 34, 37, 44, 48, 5.0, [0x38, 0x38, 0x36]);
+    image.fill_rounded_rectangle(x + 38, 41, 36, 40, 3.0, panel_rgb);
+    image.fill_rounded_rectangle(x + 78, 58, 28, 6, 3.0, [0x38, 0x38, 0x36]);
+    image.fill_rounded_rectangle(x + 89, 47, 6, 28, 3.0, [0x38, 0x38, 0x36]);
 }
 
 fn draw_toolbar_button(

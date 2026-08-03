@@ -56,6 +56,14 @@ impl From<io::Error> for TelegramApiError {
 pub(crate) struct TelegramUpdate {
     pub update_id: i64,
     pub message: Option<TelegramMessage>,
+    pub callback_query: Option<TelegramCallbackQuery>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct TelegramCallbackQuery {
+    pub id: String,
+    pub message: Option<TelegramMessage>,
+    pub data: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -78,6 +86,12 @@ pub(crate) struct TelegramDocument {
     pub file_name: Option<String>,
     pub mime_type: Option<String>,
     pub file_size: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct TelegramButton {
+    pub text: String,
+    pub callback_data: String,
 }
 
 #[derive(Deserialize)]
@@ -119,14 +133,14 @@ impl TelegramApi {
             #[serde(skip_serializing_if = "Option::is_none")]
             offset: Option<i64>,
             timeout: u32,
-            allowed_updates: [&'static str; 1],
+            allowed_updates: [&'static str; 2],
         }
         self.call_json(
             "getUpdates",
             &Parameters {
                 offset,
                 timeout: 50,
-                allowed_updates: ["message"],
+                allowed_updates: ["message", "callback_query"],
             },
         )
     }
@@ -139,39 +153,19 @@ impl TelegramApi {
         }
         #[derive(Serialize)]
         struct Parameters<'a> {
-            commands: [Command<'a>; 7],
+            commands: [Command<'a>; 2],
         }
         let _: bool = self.call_json(
             "setMyCommands",
             &Parameters {
                 commands: [
                     Command {
-                        command: "open",
-                        description: "Ouvrir le dernier PDF reçu",
+                        command: "library",
+                        description: "Choisir un document à ouvrir",
                     },
                     Command {
-                        command: "page",
-                        description: "Envoyer la page annotée",
-                    },
-                    Command {
-                        command: "document",
-                        description: "Envoyer le PDF original",
-                    },
-                    Command {
-                        command: "next",
-                        description: "Afficher la page suivante",
-                    },
-                    Command {
-                        command: "previous",
-                        description: "Afficher la page précédente",
-                    },
-                    Command {
-                        command: "close",
-                        description: "Fermer le PDF et afficher la page blanche",
-                    },
-                    Command {
-                        command: "status",
-                        description: "État de Remarque",
+                        command: "export",
+                        description: "Exporter la page ou tout le document",
                     },
                 ],
             },
@@ -202,6 +196,57 @@ impl TelegramApi {
                 chat_id,
                 text,
                 reply_parameters: reply_to.map(|message_id| ReplyParameters { message_id }),
+            },
+        )?;
+        Ok(())
+    }
+
+    pub fn send_message_with_buttons(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i64>,
+        buttons: &[Vec<TelegramButton>],
+    ) -> Result<(), TelegramApiError> {
+        #[derive(Serialize)]
+        struct Parameters<'a> {
+            chat_id: i64,
+            text: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            reply_parameters: Option<ReplyParameters>,
+            reply_markup: InlineKeyboard<'a>,
+        }
+        #[derive(Serialize)]
+        struct ReplyParameters {
+            message_id: i64,
+        }
+        #[derive(Serialize)]
+        struct InlineKeyboard<'a> {
+            inline_keyboard: &'a [Vec<TelegramButton>],
+        }
+        let _: serde_json::Value = self.call_json(
+            "sendMessage",
+            &Parameters {
+                chat_id,
+                text,
+                reply_parameters: reply_to.map(|message_id| ReplyParameters { message_id }),
+                reply_markup: InlineKeyboard {
+                    inline_keyboard: buttons,
+                },
+            },
+        )?;
+        Ok(())
+    }
+
+    pub fn answer_callback_query(&self, callback_id: &str) -> Result<(), TelegramApiError> {
+        #[derive(Serialize)]
+        struct Parameters<'a> {
+            callback_query_id: &'a str,
+        }
+        let _: bool = self.call_json(
+            "answerCallbackQuery",
+            &Parameters {
+                callback_query_id: callback_id,
             },
         )?;
         Ok(())

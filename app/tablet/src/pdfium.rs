@@ -50,7 +50,6 @@ static INITIALIZE_PDFIUM: Once = Once::new();
 
 pub(crate) struct RenderedPdfPage {
     pub background: BgraImage,
-    pub page_count: u32,
     pub page_rectangle: PixelRectangle,
     pub page_size_points: [f64; 2],
 }
@@ -130,7 +129,6 @@ pub(crate) fn render_pdf_page(
         .map_err(io::Error::other)?;
     Ok(RenderedPdfPage {
         background,
-        page_count,
         page_rectangle: PixelRectangle {
             x: 0,
             y: content_top,

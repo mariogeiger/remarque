@@ -27,6 +27,6 @@ its own interaction model and capabilities.
 Read the [project soul](SOUL.md), the [architecture](docs/architecture.md), and
 the [documentation index](docs/README.md).
 
-The private Telegram service can receive a PDF, open it in Remarque, return the
-immutable source, and export the current annotated page. Its bot credential is
+The private Telegram service can import a PDF, open any stored document, and
+export either the current page or every annotated page. Its bot credential is
 device configuration and never belongs in this repository.

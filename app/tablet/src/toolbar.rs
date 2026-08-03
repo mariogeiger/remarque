@@ -18,8 +18,10 @@ pub const GRAY_BUTTON_X: usize = 768;
 pub const BLUE_BUTTON_X: usize = 840;
 pub const RED_BUTTON_X: usize = 912;
 pub const COLOR_BUTTON_WIDTH: usize = 56;
-pub const CLOSE_BUTTON_X: usize = 1268;
-pub const CLOSE_BUTTON_WIDTH: usize = 136;
+pub const LIBRARY_BUTTON_X: usize = 1120;
+pub const LIBRARY_BUTTON_WIDTH: usize = 120;
+pub const ADD_PAGE_BUTTON_X: usize = 1272;
+pub const ADD_PAGE_BUTTON_WIDTH: usize = 120;
 pub const QUIT_BUTTON_X: usize = 1444;
 pub const QUIT_BUTTON_WIDTH: usize = 136;
 
@@ -29,7 +31,8 @@ pub enum ToolbarAction {
     SelectEraser,
     SelectThickness(FinelinerThickness),
     SelectColor(Color),
-    CloseDocument,
+    ShowLibrary,
+    InsertBlankPage,
     ExitApplication,
     None,
 }
@@ -45,7 +48,8 @@ pub fn map_x_to_action(x: usize) -> ToolbarAction {
         GRAY_BUTTON_X..=823 => ToolbarAction::SelectColor(Color::Gray),
         BLUE_BUTTON_X..=895 => ToolbarAction::SelectColor(Color::Blue),
         RED_BUTTON_X..=967 => ToolbarAction::SelectColor(Color::Red),
-        CLOSE_BUTTON_X..=1403 => ToolbarAction::CloseDocument,
+        LIBRARY_BUTTON_X..=1239 => ToolbarAction::ShowLibrary,
+        ADD_PAGE_BUTTON_X..=1391 => ToolbarAction::InsertBlankPage,
         QUIT_BUTTON_X..=1579 => ToolbarAction::ExitApplication,
         _ => ToolbarAction::None,
     }
@@ -74,12 +78,14 @@ mod tests {
     }
 
     #[test]
-    fn maps_close_document_button() {
+    fn maps_document_buttons() {
         assert_eq!(
-            map_x_to_action(CLOSE_BUTTON_X),
-            ToolbarAction::CloseDocument
+            map_x_to_action(LIBRARY_BUTTON_X),
+            ToolbarAction::ShowLibrary
         );
-        assert_eq!(map_x_to_action(1403), ToolbarAction::CloseDocument);
-        assert_eq!(map_x_to_action(1404), ToolbarAction::None);
+        assert_eq!(
+            map_x_to_action(ADD_PAGE_BUTTON_X),
+            ToolbarAction::InsertBlankPage
+        );
     }
 }

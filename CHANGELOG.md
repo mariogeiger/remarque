@@ -2,6 +2,28 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.5.0 - 2026-08-03
+
+### Added
+
+- A full-screen tablet library for opening imported PDFs and blank notebooks.
+- Multi-page blank notebooks and insertion of a blank page after the current
+  page, including between PDF-backed pages.
+- Multi-page annotated PDF export with the original page dimensions preserved.
+- Telegram inline menus for the document library and current-page or
+  whole-document export.
+- Antialiased TrueType text in the library and page indicator.
+
+### Changed
+
+- Every document is now the same ordered collection of pages; each page has an
+  optional PDF background and one Remarque stroke layer.
+- PDFs are identified by content, so sending the same file reopens its existing
+  document and annotations instead of creating a duplicate.
+- Telegram now exposes only `/library` and `/export`; sending a PDF imports and
+  opens it directly.
+- The old notebook state migrates atomically into the document-library format.
+
 ## 0.4.0 - 2026-08-03
 
 ### Added
