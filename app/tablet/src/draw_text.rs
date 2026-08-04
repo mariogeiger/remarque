@@ -63,6 +63,28 @@ pub(crate) fn draw_text(
     pen_x.round() as usize
 }
 
+pub(crate) fn measure_text_width(text: &str, pixel_size: u16) -> usize {
+    cache_glyphs(text, pixel_size);
+    let glyphs = glyphs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut width = 0.0;
+    let mut previous = None;
+    for character in text.chars() {
+        if let Some(previous) = previous {
+            width += font()
+                .horizontal_kern(previous, character, pixel_size as f32)
+                .unwrap_or(0.0);
+        }
+        width += glyphs
+            .get(&(character, pixel_size))
+            .expect("glyph was cached")
+            .advance;
+        previous = Some(character);
+    }
+    width.ceil().max(0.0) as usize
+}
+
 fn cache_glyphs(text: &str, pixel_size: u16) {
     let mut glyphs = glyphs()
         .lock()

@@ -79,6 +79,15 @@ exclusive states in one gesture recognizer behind the palm-contact filter.
 Tool choice does not add UI state: the stylus tip is the fineliner and the
 opposite end is the eraser.
 
+The physical power button is another tablet input, not an application exit.
+The tablet adapter persists any active stroke, enters the firmware's systemd
+suspend-then-hibernate path, and redraws the same runtime view after wake. A
+timed transition wake lock closes the gap between releasing the application
+lock and systemd disabling autosleep. The kernel's successful-suspend counter,
+not the command exit alone, determines whether a retry is needed. Firmware
+sleep hooks and wake-source configuration remain the authority for hardware
+power transitions.
+
 The tablet library is available directly on screen. The Telegram surface keeps
 only two commands: `/library` opens a document remotely and `/export` chooses a
 current-page or whole-document export. Sending a PDF imports and opens it.

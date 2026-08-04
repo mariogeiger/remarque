@@ -3,6 +3,7 @@ use std::ffi::CString;
 use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::time::{Duration, Instant};
 
 const EVENT_BYTES: usize = 24;
 const EVENTS_PER_READ: usize = 64;
@@ -22,6 +23,7 @@ const ABS_MT_TRACKING_ID: u16 = 57;
 const BTN_TOOL_PEN: u16 = 320;
 const BTN_TOOL_RUBBER: u16 = 321;
 const BTN_TOUCH: u16 = 330;
+const KEY_POWER: u16 = 116;
 const EVIOCGRAB: libc::c_ulong = 0x40044590;
 const PEN_MAX_X: i32 = 11180;
 const PEN_MAX_Y: i32 = 15340;
@@ -125,6 +127,16 @@ impl PenDevice {
         })?;
         Ok(frames)
     }
+
+    pub fn discard_pending_events_and_reset_state(&mut self) -> io::Result<()> {
+        read_events(self.raw_fd(), |_, _, _| {})?;
+        self.raw_pressure = 0;
+        self.touching = false;
+        self.pen_in_range = false;
+        self.eraser_in_range = false;
+        self.changed = false;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -224,6 +236,79 @@ impl TouchDevice {
         })?;
         Ok(frames)
     }
+
+    pub fn discard_pending_events_and_reset_state(&mut self) -> io::Result<()> {
+        read_events(self.raw_fd(), |_, _, _| {})?;
+        self.selected_slot = 0;
+        self.slots = [TouchSlot::default(); TOUCH_SLOTS];
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct PowerButtonState {
+    pressed: bool,
+    recognize_current_press: bool,
+}
+
+impl PowerButtonState {
+    fn apply_key_value(&mut self, value: i32, recognize_new_press: bool) -> bool {
+        match value {
+            0 => {
+                let completed = self.pressed && self.recognize_current_press;
+                self.pressed = false;
+                self.recognize_current_press = false;
+                completed
+            }
+            1 => {
+                self.pressed = true;
+                self.recognize_current_press = recognize_new_press;
+                false
+            }
+            _ => false,
+        }
+    }
+}
+
+pub struct PowerButtonDevice {
+    file: OwnedFd,
+    state: PowerButtonState,
+    recognize_new_presses_after: Instant,
+}
+
+impl PowerButtonDevice {
+    pub fn open() -> io::Result<Self> {
+        Ok(Self {
+            file: open_named_input("powerkey")?,
+            state: PowerButtonState::default(),
+            recognize_new_presses_after: Instant::now(),
+        })
+    }
+
+    pub fn raw_fd(&self) -> RawFd {
+        self.file.as_raw_fd()
+    }
+
+    pub fn drain_completed_press(&mut self) -> io::Result<bool> {
+        let mut completed = false;
+        let recognize_new_press = Instant::now() >= self.recognize_new_presses_after;
+        read_events(self.raw_fd(), |event_type, code, value| {
+            if event_type == EV_KEY && code == KEY_POWER {
+                completed |= self.state.apply_key_value(value, recognize_new_press);
+            }
+        })?;
+        Ok(completed)
+    }
+
+    pub fn suppress_new_presses_for(&mut self, duration: Duration) {
+        self.recognize_new_presses_after = Instant::now() + duration;
+    }
+
+    pub fn discard_pending_events_and_reset_state(&mut self) -> io::Result<()> {
+        read_events(self.raw_fd(), |_, _, _| {})?;
+        self.state = PowerButtonState::default();
+        Ok(())
+    }
 }
 
 fn open_named_input(name_fragment: &str) -> io::Result<OwnedFd> {
@@ -316,5 +401,26 @@ mod tests {
     #[test]
     fn kernel_palm_classification_rejects_small_contact() {
         assert!(touch_point(8.0, true).is_palm());
+    }
+
+    #[test]
+    fn power_button_completes_once_on_release() {
+        let mut button = PowerButtonState::default();
+        assert!(!button.apply_key_value(1, true));
+        assert!(!button.apply_key_value(2, true));
+        assert!(button.apply_key_value(0, true));
+        assert!(!button.apply_key_value(0, true));
+    }
+
+    #[test]
+    fn power_button_release_without_press_does_not_complete() {
+        assert!(!PowerButtonState::default().apply_key_value(0, true));
+    }
+
+    #[test]
+    fn suppressed_power_button_press_remains_suppressed_until_release() {
+        let mut button = PowerButtonState::default();
+        assert!(!button.apply_key_value(1, false));
+        assert!(!button.apply_key_value(0, true));
     }
 }

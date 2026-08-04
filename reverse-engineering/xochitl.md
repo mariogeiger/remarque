@@ -51,6 +51,41 @@ The running process opens all four input devices:
 This confirms that a replacement shell can obtain pen, touch, lid, and power
 events from ordinary Linux evdev interfaces.
 
+## Power-management boundary
+
+The native binary names `powerButtonSuspend`, `goToSleep`, suspend delays,
+slumber inhibitors, wake reasons, and the exact command target
+`suspend-then-hibernate.target`. Its diagnostic strings identify inhibitors
+for pending document stores and imports, sync, software updates, Wi-Fi
+refresh, and screen sharing. These are application-level gates before the
+firmware transition, not hidden kernel operations.
+
+On this firmware, `suspend-then-hibernate.target` delegates to
+`systemd-sleep suspend-then-hibernate`; its configured hibernation delay is
+four hours. The shared system-sleep hooks inhibit the power key, choose wake
+sources, force charger mode, unload and reload Wi-Fi/Bluetooth, record the
+transition, and manage autosleep. Hibernate additionally selects the Falcon
+boot flow and handles OP-TEE.
+
+The kernel exposes completed and failed transitions under
+`/sys/power/suspend_stats`. A systemd command returning is therefore
+insufficient evidence that the device slept: the e-paper regulator can still
+abort the transition while its post-update discharge timer is active. A
+replacement application must confirm that the success counter advanced and
+retry bounded failures.
+
+### Replacement-path validation
+
+On 2026-08-04, the Remarque path showed its sleep screen, waited for the
+30-second panel discharge interval, and requested suspend-then-hibernate. The
+first kernel transition returned `Resource temporarily unavailable`; the
+bounded retry then advanced the successful-suspend counter from 3 to 4. After
+the physical-button wake, the same graphical process ID was still running,
+its durable document state had the same hash, autosleep and the application
+wake lock were restored, and WPA reported a completed connection. This
+confirms both the need for counter-based retry and the process-continuity
+contract.
+
 ## Display boundary
 
 The display backend is an internal class named `EPFramebuffer`. Its constructor

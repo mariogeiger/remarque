@@ -5,8 +5,11 @@ use crate::document_library::{DocumentLibrary, restore_document_library, save_do
 use crate::draw_document_library::{
     DocumentLibraryAction, document_library_action_at, draw_document_library,
 };
+use crate::draw_sleep_screen::draw_sleep_screen;
 use crate::draw_toolbar::{HEIGHT as TOOLBAR_HEIGHT, draw_toolbar};
-use crate::draw_viewport_indicators::draw_viewport_indicators;
+use crate::draw_viewport_indicators::{
+    draw_viewport_indicators, viewport_indicators_visible_at_scale,
+};
 use crate::edge_page_swipe::{page_delta_from_edge_swipe, starts_at_page_edge};
 use crate::erase_strokes::{EraserThickness, erase_stroke};
 use crate::export_document_pages::export_document_pages;
@@ -116,6 +119,31 @@ impl Notebook {
 
     pub fn height(&self) -> usize {
         self.display.height()
+    }
+
+    pub fn finish_input_sequences_and_save_state(&mut self) -> io::Result<()> {
+        self.finish_pen_contact()?;
+        self.touch_gestures.reset();
+        self.pen_proximity = false;
+        self.save_state()
+    }
+
+    pub fn show_sleep_screen(&mut self) -> io::Result<()> {
+        draw_sleep_screen(&mut self.image);
+        let full = Rectangle::full(self.image.width(), self.image.height());
+        self.display.copy_from(&self.image, full)?;
+        self.display.show_color_full();
+        Ok(())
+    }
+
+    pub fn redraw_active_view_with_full_refresh(&mut self) -> io::Result<()> {
+        if self.open_document.is_some() {
+            self.redraw_notebook()?;
+            self.display.show_color_full();
+            Ok(())
+        } else {
+            self.redraw_document_library()
+        }
     }
 
     pub fn import_pdf(
@@ -528,7 +556,7 @@ impl Notebook {
             document.page_number,
             document.page_count,
         );
-        if self.touch_gestures.is_pinching() {
+        if viewport_indicators_visible_at_scale(self.transform.scale) {
             let viewport = self.viewport();
             let scene = self.scene_bounds()?.size;
             draw_viewport_indicators(&mut self.image, self.transform, viewport, scene);

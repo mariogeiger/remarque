@@ -5,7 +5,8 @@ and returns cleanly to Xochitl through the library's explicit Quit action.
 
 ## Boundaries
 
-- `input` converts Linux marker and touch events into typed frames.
+- `input` converts Linux marker, touch, and power-button events into typed
+  application input.
 - `filter_touch_sequences` rejects palm and excess-contact sequences.
 - `touch_tap` recognizes stationary finger taps on the library and toolbar.
 - `touch_gesture` makes taps, page swipes, and pinches mutually exclusive.
@@ -21,6 +22,10 @@ and returns cleanly to Xochitl through the library's explicit Quit action.
 - `draw_document_library`, `draw_text`, `draw_toolbar`, and
   `draw_viewport_indicators` own presentation only.
 - `display` copies BGRA rectangles and requests Quill waveform updates.
+- `system_suspend` bridges the application wake lock to the firmware's
+  suspend-then-hibernate path and confirms the resulting kernel transition.
+- `wifi_reassociation` restores a connection that remains disabled after the
+  firmware reloads the radio on wake.
 - `screen_stream` serves snapshots of that same display from this process; it
   is not a second tablet application.
 - `remarque_tablet` only wires signals, devices, and the application loop.
@@ -41,6 +46,14 @@ last-opened document. Per-document pages and annotations remain persistent.
 Both the library and toolbar accept the stylus or a finger. Finger taps pass
 through palm rejection and are cancelled when they turn into a drag or a
 two-finger gesture. The stylus tip always draws; its opposite end always erases.
+
+The physical power button commits the current input sequence and asks systemd
+to suspend, after completing any durable document request already waiting and
+fully refreshing a dedicated sleep screen. A successful transition is checked
+against the kernel suspend counter; panel-regulator aborts are retried instead
+of being mistaken for sleep. The firmware hibernates after its configured
+four-hour interval. The graphical process remains alive, so wake returns to
+the exact runtime document and view instead of launching Xochitl.
 
 The stream listens on port `7432` without authentication. Expose it only on a
 trusted local network or through a private network transport.

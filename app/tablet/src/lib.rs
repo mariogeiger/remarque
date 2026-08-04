@@ -7,6 +7,8 @@ pub mod document_requests;
 #[cfg(feature = "takeover")]
 mod draw_document_library;
 #[cfg(feature = "takeover")]
+mod draw_sleep_screen;
+#[cfg(feature = "takeover")]
 mod draw_text;
 #[cfg(feature = "takeover")]
 mod draw_toolbar;
@@ -34,11 +36,15 @@ mod render_page_view;
 pub mod screen_stream;
 #[cfg(any(feature = "takeover", test))]
 mod screen_stream_protocol;
+#[cfg(any(feature = "takeover", test))]
+pub mod system_suspend;
 pub mod toolbar;
 #[cfg(any(feature = "takeover", test))]
 mod touch_gesture;
 #[cfg(any(feature = "takeover", test))]
 mod touch_tap;
+#[cfg(any(feature = "takeover", test))]
+pub mod wifi_reassociation;
 pub use remarque_core::bgra_image;
 pub use remarque_core::color;
 pub use remarque_core::erase_strokes;

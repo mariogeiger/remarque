@@ -7,6 +7,10 @@ const MARGIN: f64 = 32.0;
 const EDGE_INSET: f32 = 24.0;
 const WIDTH_QUARTER_PIXELS: u16 = 6 * 4;
 
+pub(crate) fn viewport_indicators_visible_at_scale(scale: f64) -> bool {
+    scale > 1.0
+}
+
 pub(crate) fn draw_viewport_indicators(
     image: &mut BgraImage,
     transform: ViewTransform,
@@ -102,5 +106,11 @@ mod tests {
         assert_eq!(vertical.length, 0.4);
         assert_eq!(vertical.start, 0.05);
         assert_ne!(image.pixel(976, 72), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn indicators_are_visible_only_above_minimum_zoom() {
+        assert!(!viewport_indicators_visible_at_scale(1.0));
+        assert!(viewport_indicators_visible_at_scale(1.01));
     }
 }

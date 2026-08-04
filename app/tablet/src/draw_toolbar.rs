@@ -1,10 +1,15 @@
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
-use crate::draw_text::draw_text;
+use crate::draw_text::{draw_text, measure_text_width};
 use crate::fineliner::FinelinerThickness;
-use crate::toolbar;
+use crate::toolbar::{self, ToolbarAction, ToolbarActionRegion};
 
-pub(crate) const HEIGHT: usize = 112;
+pub(crate) const HEIGHT: usize = 84;
+const BACKGROUND: [u8; 3] = [0xff, 0xff, 0xff];
+const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
+const SHADOW: [u8; 3] = [0xd8, 0xd6, 0xd0];
+const SELECTED: [u8; 3] = [0xd8, 0xe8, 0xf6];
+const ICON: [u8; 3] = [0x38, 0x38, 0x36];
 
 pub(crate) fn draw_toolbar(
     image: &mut BgraImage,
@@ -13,153 +18,130 @@ pub(crate) fn draw_toolbar(
     page_number: u32,
     page_count: u32,
 ) {
-    const BACKGROUND: [u8; 3] = [0xff, 0xff, 0xff];
-    const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
-    const SHADOW: [u8; 3] = [0xd8, 0xd6, 0xd0];
-    const SELECTED: [u8; 3] = [0xd8, 0xe8, 0xf6];
     image.fill_rectangle(0, 0, image.width(), HEIGHT, BACKGROUND);
-    let panel_width = image.width().saturating_sub(toolbar::PANEL_X * 2);
     image.fill_rounded_rectangle(
         toolbar::PANEL_X,
-        toolbar::PANEL_Y + 3,
-        panel_width,
+        toolbar::PANEL_Y + 2,
+        toolbar::PANEL_WIDTH,
         toolbar::PANEL_HEIGHT,
-        24.0,
+        20.0,
         SHADOW,
     );
     image.fill_rounded_rectangle(
         toolbar::PANEL_X,
         toolbar::PANEL_Y,
-        panel_width,
+        toolbar::PANEL_WIDTH,
         toolbar::PANEL_HEIGHT,
-        24.0,
+        20.0,
         PANEL,
     );
-    draw_library_button(image, PANEL);
-    draw_toolbar_separator(image, 184);
 
-    for (x, preset) in [
-        (toolbar::THIN_BUTTON_X, FinelinerThickness::Thin),
-        (toolbar::MEDIUM_BUTTON_X, FinelinerThickness::Medium),
-        (toolbar::THICK_BUTTON_X, FinelinerThickness::Thick),
-        (
-            toolbar::EXTRA_THICK_BUTTON_X,
-            FinelinerThickness::ExtraThick,
-        ),
-    ] {
-        draw_toolbar_button(
-            image,
-            x,
-            toolbar::PRESET_BUTTON_WIDTH,
-            preset == thickness,
-            SELECTED,
-            PANEL,
-        );
-        let diameter = match preset {
-            FinelinerThickness::Thin => 10,
-            FinelinerThickness::Medium => 18,
-            FinelinerThickness::Thick => 26,
-            FinelinerThickness::ExtraThick => 34,
-        };
-        image.fill_rounded_rectangle(
-            x + (toolbar::PRESET_BUTTON_WIDTH - diameter) / 2,
-            60 - diameter / 2,
-            diameter,
-            diameter,
-            diameter as f32 * 0.5,
-            [0x25, 0x25, 0x24],
-        );
+    for region in toolbar::ACTION_REGIONS {
+        match region.action {
+            ToolbarAction::ShowLibrary => draw_library_button(image, region),
+            ToolbarAction::SelectThickness(preset) => {
+                draw_thickness_button(image, region, preset, preset == thickness)
+            }
+            ToolbarAction::SelectColor(swatch) => {
+                draw_color_button(image, region, swatch, swatch == color)
+            }
+            ToolbarAction::InsertBlankPage => draw_add_page_button(image, region),
+            ToolbarAction::None => {}
+        }
     }
-    draw_toolbar_separator(image, 592);
-    for (x, swatch) in [
-        (toolbar::BLACK_BUTTON_X, Color::Black),
-        (toolbar::GRAY_BUTTON_X, Color::Gray),
-        (toolbar::BLUE_BUTTON_X, Color::Blue),
-        (toolbar::RED_BUTTON_X, Color::Red),
-    ] {
-        draw_color_swatch(image, x, swatch, swatch == color, SELECTED, PANEL);
+    for x in toolbar::SEPARATOR_XS {
+        draw_toolbar_separator(image, x);
     }
-    draw_toolbar_separator(image, 960);
-    draw_text(
-        image,
-        toolbar::PAGE_INDICATOR_X,
-        72,
-        &format!("{page_number}/{page_count}"),
-        24,
-        78,
-        [0x55, 0x55, 0x52],
-    );
-    draw_add_page_button(image, PANEL);
+    draw_page_indicator(image, page_number, page_count);
 }
 
-fn draw_library_button(image: &mut BgraImage, panel_rgb: [u8; 3]) {
-    draw_toolbar_button(
-        image,
-        toolbar::LIBRARY_BUTTON_X,
-        toolbar::LIBRARY_BUTTON_WIDTH,
-        false,
-        panel_rgb,
-        panel_rgb,
-    );
-    let x = toolbar::LIBRARY_BUTTON_X;
-    image.fill_rounded_rectangle(x + 26, 47, 68, 38, 7.0, [0x38, 0x38, 0x36]);
-    image.fill_rounded_rectangle(x + 31, 52, 58, 28, 4.0, panel_rgb);
-    image.fill_rounded_rectangle(x + 28, 39, 32, 15, 5.0, [0x38, 0x38, 0x36]);
+fn draw_library_button(image: &mut BgraImage, region: ToolbarActionRegion) {
+    draw_toolbar_button(image, region, false);
+    let icon_width = 42;
+    let icon_height = 28;
+    let x = region.x + (region.width - icon_width) / 2;
+    let y = toolbar::BUTTON_Y + (toolbar::BUTTON_HEIGHT - icon_height) / 2 + 3;
+    image.fill_rounded_rectangle(x, y, icon_width, icon_height, 6.0, ICON);
+    image.fill_rounded_rectangle(x + 4, y + 4, icon_width - 8, icon_height - 8, 3.0, PANEL);
+    image.fill_rounded_rectangle(x + 3, y - 6, 20, 11, 4.0, ICON);
 }
 
-fn draw_add_page_button(image: &mut BgraImage, panel_rgb: [u8; 3]) {
-    draw_toolbar_button(
-        image,
-        toolbar::ADD_PAGE_BUTTON_X,
-        toolbar::ADD_PAGE_BUTTON_WIDTH,
-        false,
-        panel_rgb,
-        panel_rgb,
-    );
-    let x = toolbar::ADD_PAGE_BUTTON_X;
-    image.fill_rounded_rectangle(x + 34, 37, 44, 48, 5.0, [0x38, 0x38, 0x36]);
-    image.fill_rounded_rectangle(x + 38, 41, 36, 40, 3.0, panel_rgb);
-    image.fill_rounded_rectangle(x + 78, 58, 28, 6, 3.0, [0x38, 0x38, 0x36]);
-    image.fill_rounded_rectangle(x + 89, 47, 6, 28, 3.0, [0x38, 0x38, 0x36]);
-}
-
-fn draw_toolbar_button(
+fn draw_thickness_button(
     image: &mut BgraImage,
-    x: usize,
-    width: usize,
+    region: ToolbarActionRegion,
+    thickness: FinelinerThickness,
     selected: bool,
-    selected_rgb: [u8; 3],
-    panel_rgb: [u8; 3],
 ) {
+    draw_toolbar_button(image, region, selected);
+    let diameter = match thickness {
+        FinelinerThickness::Thin => 8,
+        FinelinerThickness::Medium => 14,
+        FinelinerThickness::Thick => 20,
+        FinelinerThickness::ExtraThick => 28,
+    };
     image.fill_rounded_rectangle(
-        x,
+        region.x + (region.width - diameter) / 2,
+        toolbar::BUTTON_Y + (toolbar::BUTTON_HEIGHT - diameter) / 2,
+        diameter,
+        diameter,
+        diameter as f32 * 0.5,
+        [0x25, 0x25, 0x24],
+    );
+}
+
+fn draw_color_button(
+    image: &mut BgraImage,
+    region: ToolbarActionRegion,
+    color: Color,
+    selected: bool,
+) {
+    draw_toolbar_button(image, region, selected);
+    let diameter = 24;
+    image.fill_rounded_rectangle(
+        region.x + (region.width - diameter) / 2,
+        toolbar::BUTTON_Y + (toolbar::BUTTON_HEIGHT - diameter) / 2,
+        diameter,
+        diameter,
+        diameter as f32 * 0.5,
+        color.rgb(),
+    );
+}
+
+fn draw_add_page_button(image: &mut BgraImage, region: ToolbarActionRegion) {
+    draw_toolbar_button(image, region, false);
+    let page_x = region.x + 16;
+    let page_y = toolbar::BUTTON_Y + 11;
+    image.fill_rounded_rectangle(page_x, page_y, 28, 34, 4.0, ICON);
+    image.fill_rounded_rectangle(page_x + 3, page_y + 3, 22, 28, 2.0, PANEL);
+    image.fill_rounded_rectangle(page_x + 34, page_y + 15, 18, 4, 2.0, ICON);
+    image.fill_rounded_rectangle(page_x + 41, page_y + 8, 4, 18, 2.0, ICON);
+}
+
+fn draw_toolbar_button(image: &mut BgraImage, region: ToolbarActionRegion, selected: bool) {
+    image.fill_rounded_rectangle(
+        region.x,
         toolbar::BUTTON_Y,
-        width,
+        region.width,
         toolbar::BUTTON_HEIGHT,
-        18.0,
-        if selected { selected_rgb } else { panel_rgb },
+        14.0,
+        if selected { SELECTED } else { PANEL },
     );
 }
 
 fn draw_toolbar_separator(image: &mut BgraImage, x: usize) {
-    image.fill_rounded_rectangle(x, 36, 2, 48, 1.0, [0xd2, 0xd0, 0xca]);
+    image.fill_rounded_rectangle(x, 22, 2, 40, 1.0, [0xd2, 0xd0, 0xca]);
 }
 
-fn draw_color_swatch(
-    image: &mut BgraImage,
-    x: usize,
-    color: Color,
-    selected: bool,
-    selected_rgb: [u8; 3],
-    panel_rgb: [u8; 3],
-) {
-    draw_toolbar_button(
+fn draw_page_indicator(image: &mut BgraImage, page_number: u32, page_count: u32) {
+    let text = format!("{page_number}/{page_count}");
+    let text_width = measure_text_width(&text, 20).min(toolbar::PAGE_INDICATOR_WIDTH);
+    draw_text(
         image,
-        x,
-        toolbar::COLOR_BUTTON_WIDTH,
-        selected,
-        selected_rgb,
-        panel_rgb,
+        toolbar::PAGE_INDICATOR_X + (toolbar::PAGE_INDICATOR_WIDTH - text_width) / 2,
+        55,
+        &text,
+        20,
+        toolbar::PAGE_INDICATOR_WIDTH,
+        [0x55, 0x55, 0x52],
     );
-    image.fill_rounded_rectangle(x + 14, 46, 28, 28, 14.0, color.rgb());
 }

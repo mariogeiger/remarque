@@ -1,17 +1,30 @@
 use remarque_document::DocumentExchange;
 use remarque_tablet::display::QuillDisplay;
-use remarque_tablet::document_requests::apply_oldest_document_request;
-use remarque_tablet::input::{PenDevice, TouchDevice};
+use remarque_tablet::document_requests::apply_all_pending_document_requests;
+use remarque_tablet::input::{PenDevice, PowerButtonDevice, TouchDevice};
 use remarque_tablet::notebook::Notebook;
 use remarque_tablet::screen_stream::start_screen_stream;
+use remarque_tablet::system_suspend::suspend_then_hibernate_until_woken;
+use remarque_tablet::wifi_reassociation::retry_wifi_reassociation_in_background;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use std::io;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
-fn poll_inputs(pen: RawFd, touch: RawFd) -> io::Result<()> {
+const POWER_BUTTON_SUPPRESSION_AFTER_RESUME: Duration = Duration::from_secs(3);
+const PANEL_POST_UPDATE_DISCHARGE_TIME: Duration = Duration::from_secs(30);
+const SLEEPING_POWER_BUTTON_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+enum PanelDischargeWait {
+    ReadyToSuspend,
+    WakeRequested,
+    StopRequested,
+}
+
+fn poll_inputs(pen: RawFd, touch: RawFd, power_button: RawFd) -> io::Result<()> {
     let mut descriptors = [
         libc::pollfd {
             fd: pen,
@@ -20,6 +33,11 @@ fn poll_inputs(pen: RawFd, touch: RawFd) -> io::Result<()> {
         },
         libc::pollfd {
             fd: touch,
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: power_button,
             events: libc::POLLIN,
             revents: 0,
         },
@@ -32,6 +50,39 @@ fn poll_inputs(pen: RawFd, touch: RawFd) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn wait_for_panel_discharge_or_power_button(
+    power_button: &mut PowerButtonDevice,
+    stop: &AtomicBool,
+) -> io::Result<PanelDischargeWait> {
+    let ready_at = Instant::now() + PANEL_POST_UPDATE_DISCHARGE_TIME;
+    while Instant::now() < ready_at {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(PanelDischargeWait::StopRequested);
+        }
+        let remaining = ready_at.saturating_duration_since(Instant::now());
+        let timeout = remaining
+            .min(SLEEPING_POWER_BUTTON_POLL_INTERVAL)
+            .as_millis()
+            .max(1) as i32;
+        let mut descriptor = libc::pollfd {
+            fd: power_button.raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let result = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        if power_button.drain_completed_press()? {
+            return Ok(PanelDischargeWait::WakeRequested);
+        }
+    }
+    Ok(PanelDischargeWait::ReadyToSuspend)
 }
 
 fn main() -> io::Result<()> {
@@ -56,9 +107,10 @@ fn main() -> io::Result<()> {
     };
     let mut pen = PenDevice::open(notebook.width(), notebook.height())?;
     let mut touch = TouchDevice::open(notebook.width(), notebook.height())?;
+    let mut power_button = PowerButtonDevice::open()?;
 
     while !stop.load(Ordering::Relaxed) {
-        poll_inputs(pen.raw_fd(), touch.raw_fd())?;
+        poll_inputs(pen.raw_fd(), touch.raw_fd(), power_button.raw_fd())?;
         for frame in pen.drain()? {
             if notebook.apply_pen_frame(frame)? {
                 return Ok(());
@@ -69,7 +121,29 @@ fn main() -> io::Result<()> {
                 return Ok(());
             }
         }
-        apply_oldest_document_request(&mut notebook, &exchange)?;
+        let suspend_requested = power_button.drain_completed_press()?;
+        apply_all_pending_document_requests(&mut notebook, &exchange)?;
+        if suspend_requested {
+            notebook.finish_input_sequences_and_save_state()?;
+            notebook.show_sleep_screen()?;
+            match wait_for_panel_discharge_or_power_button(&mut power_button, &stop)? {
+                PanelDischargeWait::ReadyToSuspend => {
+                    if let Err(error) = suspend_then_hibernate_until_woken() {
+                        eprintln!("tablet_suspend_failed={error}");
+                    }
+                    if let Err(error) = retry_wifi_reassociation_in_background() {
+                        eprintln!("wifi_reassociation_start_failed={error}");
+                    }
+                }
+                PanelDischargeWait::WakeRequested => {}
+                PanelDischargeWait::StopRequested => return Ok(()),
+            }
+            pen.discard_pending_events_and_reset_state()?;
+            touch.discard_pending_events_and_reset_state()?;
+            power_button.discard_pending_events_and_reset_state()?;
+            power_button.suppress_new_presses_for(POWER_BUTTON_SUPPRESSION_AFTER_RESUME);
+            notebook.redraw_active_view_with_full_refresh()?;
+        }
     }
     Ok(())
 }

@@ -2,12 +2,20 @@ use crate::notebook::Notebook;
 use remarque_document::{DocumentExchange, DocumentRequestKind, DocumentResponseKind};
 use std::io;
 
-pub fn apply_oldest_document_request(
+pub fn apply_all_pending_document_requests(
     notebook: &mut Notebook,
     exchange: &DocumentExchange,
 ) -> io::Result<()> {
+    while apply_oldest_document_request(notebook, exchange)? {}
+    Ok(())
+}
+
+fn apply_oldest_document_request(
+    notebook: &mut Notebook,
+    exchange: &DocumentExchange,
+) -> io::Result<bool> {
     let Some(pending) = exchange.oldest_pending()? else {
-        return Ok(());
+        return Ok(false);
     };
     let result = match &pending.request.kind {
         DocumentRequestKind::ImportPdf {
@@ -35,5 +43,6 @@ pub fn apply_oldest_document_request(
     let response = result.unwrap_or_else(|error| DocumentResponseKind::Failed {
         message: error.to_string(),
     });
-    exchange.complete(pending, response)
+    exchange.complete(pending, response)?;
+    Ok(true)
 }

@@ -97,6 +97,7 @@ impl TouchGestureRecognizer {
         }
     }
 
+    #[cfg(test)]
     pub fn is_pinching(&self) -> bool {
         matches!(self.active, ActiveGesture::Pinch { .. })
     }

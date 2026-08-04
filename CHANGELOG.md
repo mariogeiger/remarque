@@ -2,6 +2,31 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.8.0 - 2026-08-04
+
+### Added
+
+- The physical power button now suspends the tablet and wakes directly back
+  into the same Remarque process, document, page, and view.
+- A dedicated sleep screen is fully refreshed before the panel enters its
+  firmware-managed sleep path.
+- A native yellow joins the drawing palette.
+
+### Changed
+
+- A power-button action finishes and persists active pen input before suspend,
+  resets stale device contacts after resume, and suppresses the wake press so
+  it cannot immediately suspend the tablet again.
+- Sleep now uses the firmware's suspend-then-hibernate policy, confirms success
+  from the kernel counter, retries display-regulator aborts, and reassociates
+  Wi-Fi after wake.
+- Durable Telegram document requests already queued at the power-button press
+  are completed before the tablet sleeps.
+- Page-position indicators now remain visible after a zoom gesture and
+  disappear only at minimum zoom.
+- The toolbar is now a thinner, content-sized capsule aligned to the left;
+  controls retain finger-sized hit targets.
+
 ## 0.7.0 - 2026-08-03
 
 ### Changed
