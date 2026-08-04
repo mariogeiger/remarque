@@ -2,6 +2,22 @@
 
 All notable user-visible changes to this project are documented here.
 
+## 0.9.0 - 2026-08-04
+
+### Added
+
+- The library header shows live Wi-Fi connectivity and battery percentage.
+- Every completed sleep cycle atomically records its sleep-inclusive duration,
+  raw battery readings and changes, and kernel suspend counters for overnight
+  measurement.
+- The deploy configuration explicitly enables deep suspend followed by
+  shutdown-mode hibernation after four hours.
+
+### Changed
+
+- Battery and Wi-Fi status refresh automatically while the library remains
+  visible and after wake.
+
 ## 0.8.0 - 2026-08-04
 
 ### Added

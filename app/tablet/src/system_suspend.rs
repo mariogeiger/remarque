@@ -14,7 +14,13 @@ const MAX_SUSPEND_ATTEMPTS: usize = 8;
 const SUSPEND_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(6);
 const SUSPEND_COUNT_POLL_INTERVAL: Duration = Duration::from_millis(400);
 
-pub fn suspend_then_hibernate_until_woken() -> io::Result<()> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompletedSuspend {
+    pub successful_suspend_count_before: u64,
+    pub successful_suspend_count_after: u64,
+}
+
+pub fn suspend_then_hibernate_until_woken() -> io::Result<CompletedSuspend> {
     let successful_suspends_before =
         read_successful_suspend_count(Path::new(SUSPEND_SUCCESS_COUNT_PATH))?;
     unsafe { libc::sync() };
@@ -37,9 +43,14 @@ pub fn suspend_then_hibernate_until_woken() -> io::Result<()> {
                 return Err(error);
             }
         };
-        if wait_for_successful_suspend_after(successful_suspends_before)? {
+        if let Some(successful_suspends_after) =
+            wait_for_successful_suspend_after(successful_suspends_before)?
+        {
             released_wake_lock.restore()?;
-            return Ok(());
+            return Ok(CompletedSuspend {
+                successful_suspend_count_before: successful_suspends_before,
+                successful_suspend_count_after: successful_suspends_after,
+            });
         }
         log_failed_suspend_attempt(attempt, status);
     }
@@ -50,14 +61,15 @@ pub fn suspend_then_hibernate_until_woken() -> io::Result<()> {
     )))
 }
 
-fn wait_for_successful_suspend_after(previous_count: u64) -> io::Result<bool> {
+fn wait_for_successful_suspend_after(previous_count: u64) -> io::Result<Option<u64>> {
     let deadline = Instant::now() + SUSPEND_CONFIRMATION_TIMEOUT;
     loop {
-        if read_successful_suspend_count(Path::new(SUSPEND_SUCCESS_COUNT_PATH))? > previous_count {
-            return Ok(true);
+        let current_count = read_successful_suspend_count(Path::new(SUSPEND_SUCCESS_COUNT_PATH))?;
+        if current_count > previous_count {
+            return Ok(Some(current_count));
         }
         if Instant::now() >= deadline {
-            return Ok(false);
+            return Ok(None);
         }
         thread::sleep(SUSPEND_COUNT_POLL_INTERVAL);
     }

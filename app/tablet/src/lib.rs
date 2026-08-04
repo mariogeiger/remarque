@@ -1,3 +1,5 @@
+#[cfg(any(feature = "takeover", test))]
+pub mod battery;
 #[cfg(feature = "takeover")]
 pub mod display;
 #[cfg(any(feature = "takeover", test))]
@@ -37,6 +39,8 @@ pub mod screen_stream;
 #[cfg(any(feature = "takeover", test))]
 mod screen_stream_protocol;
 #[cfg(any(feature = "takeover", test))]
+pub mod sleep_cycle_measurement;
+#[cfg(any(feature = "takeover", test))]
 pub mod system_suspend;
 pub mod toolbar;
 #[cfg(any(feature = "takeover", test))]
@@ -44,7 +48,7 @@ mod touch_gesture;
 #[cfg(any(feature = "takeover", test))]
 mod touch_tap;
 #[cfg(any(feature = "takeover", test))]
-pub mod wifi_reassociation;
+pub mod wifi;
 pub use remarque_core::bgra_image;
 pub use remarque_core::color;
 pub use remarque_core::erase_strokes;

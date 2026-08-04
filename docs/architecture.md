@@ -88,6 +88,12 @@ not the command exit alone, determines whether a retry is needed. Firmware
 sleep hooks and wake-source configuration remain the authority for hardware
 power transitions.
 
+Battery and Wi-Fi readers expose small hardware facts to the library
+presentation without putting sysfs or `wpa_cli` calls in drawing code. Sleep
+measurement keeps raw before/after charge readings, sleep-inclusive monotonic
+time, and kernel suspend counters; interpretation remains separate so an
+overnight discharge is not confused with a charging cycle or a failed suspend.
+
 The tablet library is available directly on screen. The Telegram surface keeps
 only two commands: `/library` opens a document remotely and `/export` chooses a
 current-page or whole-document export. Sending a PDF imports and opens it.

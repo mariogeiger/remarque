@@ -1,6 +1,8 @@
+use crate::battery::{BatteryReading, BatteryState};
 use crate::bgra_image::BgraImage;
 use crate::draw_text::draw_text;
 use crate::view_transform::Point;
+use crate::wifi::WifiConnection;
 use remarque_document::DocumentSummary;
 
 const HEADER_HEIGHT: usize = 128;
@@ -28,10 +30,13 @@ pub(crate) fn draw_document_library(
     image: &mut BgraImage,
     documents: &[DocumentSummary],
     screen_index: usize,
+    battery: Option<BatteryReading>,
+    wifi: WifiConnection,
 ) {
     image.fill_rectangle(0, 0, image.width(), image.height(), [0xe8, 0xe7, 0xe2]);
     image.fill_rectangle(0, 0, image.width(), HEADER_HEIGHT, [0xfa, 0xf9, 0xf6]);
     draw_text(image, 64, 82, "Bibliothèque", 38, 700, [0x25, 0x25, 0x24]);
+    draw_device_status(image, battery, wifi);
     draw_new_notebook_button(image);
     draw_quit_button(image);
 
@@ -45,6 +50,37 @@ pub(crate) fn draw_document_library(
         draw_document_row(image, ROW_START_Y + slot * ROW_STEP, document);
     }
     draw_screen_navigation(image, documents.len(), screen_index);
+}
+
+fn draw_device_status(
+    image: &mut BgraImage,
+    battery: Option<BatteryReading>,
+    wifi: WifiConnection,
+) {
+    let wifi = match wifi {
+        WifiConnection::Connected => "Wi-Fi connecté",
+        WifiConnection::Disconnected => "Wi-Fi déconnecté",
+        WifiConnection::Unavailable => "Wi-Fi indisponible",
+    };
+    let battery = battery.map_or_else(
+        || "Batterie indisponible".to_owned(),
+        |reading| {
+            let charging = match reading.state {
+                BatteryState::Charging => " · en charge",
+                BatteryState::Full | BatteryState::Discharging | BatteryState::Unknown => "",
+            };
+            format!("Batterie {} %{charging}", reading.percentage)
+        },
+    );
+    draw_text(
+        image,
+        470,
+        76,
+        &format!("{wifi}  ·  {battery}"),
+        23,
+        570,
+        [0x5a, 0x5a, 0x57],
+    );
 }
 
 pub(crate) fn document_library_action_at(

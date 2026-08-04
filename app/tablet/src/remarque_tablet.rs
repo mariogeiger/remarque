@@ -4,8 +4,9 @@ use remarque_tablet::document_requests::apply_all_pending_document_requests;
 use remarque_tablet::input::{PenDevice, PowerButtonDevice, TouchDevice};
 use remarque_tablet::notebook::Notebook;
 use remarque_tablet::screen_stream::start_screen_stream;
+use remarque_tablet::sleep_cycle_measurement::SleepCycleMeasurement;
 use remarque_tablet::system_suspend::suspend_then_hibernate_until_woken;
-use remarque_tablet::wifi_reassociation::retry_wifi_reassociation_in_background;
+use remarque_tablet::wifi::retry_wifi_reassociation_in_background;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use std::io;
 use std::os::fd::RawFd;
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 const POWER_BUTTON_SUPPRESSION_AFTER_RESUME: Duration = Duration::from_secs(3);
 const PANEL_POST_UPDATE_DISCHARGE_TIME: Duration = Duration::from_secs(30);
 const SLEEPING_POWER_BUTTON_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const SLEEP_CYCLE_MEASUREMENTS_FILE: &str = "sleep-cycle-measurements.jsonl";
 
 enum PanelDischargeWait {
     ReadyToSuspend,
@@ -91,11 +93,11 @@ fn main() -> io::Result<()> {
     signal_hook::flag::register(SIGINT, Arc::clone(&stop))?;
 
     let display = Arc::new(QuillDisplay::open()?);
-    let exchange = DocumentExchange::new(
-        std::env::var_os("REMARQUE_EXCHANGE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/home/root/remarque/data/exchange")),
-    );
+    let exchange_directory = std::env::var_os("REMARQUE_EXCHANGE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/home/root/remarque/data/exchange"));
+    let sleep_cycle_measurements_path = exchange_directory.join(SLEEP_CYCLE_MEASUREMENTS_FILE);
+    let exchange = DocumentExchange::new(exchange_directory);
     exchange.prepare()?;
     let mut notebook = Notebook::new(Arc::clone(&display), exchange.library_state_path())?;
     let _screen_stream = match start_screen_stream(display) {
@@ -123,13 +125,31 @@ fn main() -> io::Result<()> {
         }
         let suspend_requested = power_button.drain_completed_press()?;
         apply_all_pending_document_requests(&mut notebook, &exchange)?;
+        notebook.redraw_library_if_device_status_changed()?;
         if suspend_requested {
             notebook.finish_input_sequences_and_save_state()?;
             notebook.show_sleep_screen()?;
             match wait_for_panel_discharge_or_power_button(&mut power_button, &stop)? {
                 PanelDischargeWait::ReadyToSuspend => {
-                    if let Err(error) = suspend_then_hibernate_until_woken() {
-                        eprintln!("tablet_suspend_failed={error}");
+                    let measurement = match SleepCycleMeasurement::capture_before_sleep() {
+                        Ok(measurement) => Some(measurement),
+                        Err(error) => {
+                            eprintln!("sleep_cycle_measurement_start_failed={error}");
+                            None
+                        }
+                    };
+                    match suspend_then_hibernate_until_woken() {
+                        Ok(completed_suspend) => {
+                            if let Some(measurement) = measurement
+                                && let Err(error) = measurement.append_after_wake(
+                                    &sleep_cycle_measurements_path,
+                                    completed_suspend,
+                                )
+                            {
+                                eprintln!("sleep_cycle_measurement_write_failed={error}");
+                            }
+                        }
+                        Err(error) => eprintln!("tablet_suspend_failed={error}"),
                     }
                     if let Err(error) = retry_wifi_reassociation_in_background() {
                         eprintln!("wifi_reassociation_start_failed={error}");

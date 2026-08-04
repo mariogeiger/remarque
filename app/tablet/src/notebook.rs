@@ -1,3 +1,4 @@
+use crate::battery::{BatteryReading, read_battery};
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
 use crate::display::{QuillDisplay, Rectangle};
@@ -27,6 +28,7 @@ use crate::toolbar::{ToolbarAction, toolbar_action_at_x};
 use crate::touch_gesture::{OneFingerGesture, TouchGestureEvent, TouchGestureRecognizer};
 use crate::touch_tap::TapSurface;
 use crate::view_transform::{Bounds, Point, Size, ViewTransform, two_finger_scale};
+use crate::wifi::{WifiConnection, read_wifi_connection};
 use remarque_document::{DocumentSummary, ExportScope};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -34,6 +36,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const PINCH_RENDER_INTERVAL: Duration = Duration::from_millis(16);
+const DEVICE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 enum PenContact {
     Fineliner {
@@ -76,6 +79,9 @@ pub struct Notebook {
     pen_proximity: bool,
     touch_gestures: TouchGestureRecognizer,
     last_pinch_render: Instant,
+    battery: Option<BatteryReading>,
+    wifi: WifiConnection,
+    last_device_status_read: Instant,
 }
 
 impl Notebook {
@@ -104,6 +110,9 @@ impl Notebook {
             pen_proximity: false,
             touch_gestures: TouchGestureRecognizer::default(),
             last_pinch_render: Instant::now(),
+            battery: None,
+            wifi: WifiConnection::Unavailable,
+            last_device_status_read: Instant::now(),
         };
         if let Err(error) = notebook.restore_state() {
             eprintln!("notebook_state_ignored={error}");
@@ -144,6 +153,23 @@ impl Notebook {
         } else {
             self.redraw_document_library()
         }
+    }
+
+    pub fn redraw_library_if_device_status_changed(&mut self) -> io::Result<()> {
+        if self.open_document.is_some()
+            || self.last_device_status_read.elapsed() < DEVICE_STATUS_REFRESH_INTERVAL
+        {
+            return Ok(());
+        }
+        let battery = read_battery().ok();
+        let wifi = read_wifi_connection();
+        self.last_device_status_read = Instant::now();
+        if battery == self.battery && wifi == self.wifi {
+            return Ok(());
+        }
+        self.battery = battery;
+        self.wifi = wifi;
+        self.redraw_document_library_from_current_status()
     }
 
     pub fn import_pdf(
@@ -647,8 +673,21 @@ impl Notebook {
     }
 
     fn redraw_document_library(&mut self) -> io::Result<()> {
+        self.battery = read_battery().ok();
+        self.wifi = read_wifi_connection();
+        self.last_device_status_read = Instant::now();
+        self.redraw_document_library_from_current_status()
+    }
+
+    fn redraw_document_library_from_current_status(&mut self) -> io::Result<()> {
         let documents = self.library.summaries();
-        draw_document_library(&mut self.image, &documents, self.library_screen_index);
+        draw_document_library(
+            &mut self.image,
+            &documents,
+            self.library_screen_index,
+            self.battery,
+            self.wifi,
+        );
         let full = Rectangle::full(self.image.width(), self.image.height());
         self.display.copy_from(&self.image, full)?;
         self.display.show_color_full();

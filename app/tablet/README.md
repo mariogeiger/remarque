@@ -22,10 +22,13 @@ and returns cleanly to Xochitl through the library's explicit Quit action.
 - `draw_document_library`, `draw_text`, `draw_toolbar`, and
   `draw_viewport_indicators` own presentation only.
 - `display` copies BGRA rectangles and requests Quill waveform updates.
+- `battery` reads the fuel-gauge percentage, charge, and charging state.
 - `system_suspend` bridges the application wake lock to the firmware's
   suspend-then-hibernate path and confirms the resulting kernel transition.
-- `wifi_reassociation` restores a connection that remains disabled after the
-  firmware reloads the radio on wake.
+- `sleep_cycle_measurement` records comparable battery and kernel observations
+  before sleep and after wake.
+- `wifi` reports connectivity and restores a connection that remains disabled
+  after the firmware reloads the radio on wake.
 - `screen_stream` serves snapshots of that same display from this process; it
   is not a second tablet application.
 - `remarque_tablet` only wires signals, devices, and the application loop.
@@ -55,6 +58,14 @@ of being mistaken for sleep. The firmware hibernates after its configured
 four-hour interval. The graphical process remains alive, so wake returns to
 the exact runtime document and view instead of launching Xochitl.
 
+The library reads battery and Wi-Fi state directly from the tablet and refreshes
+them every five seconds while visible. Each completed sleep appends one record
+to `sleep-cycle-measurements.jsonl` beside the document-library state. Battery
+changes are stored as `after - before`, so normal unplugged consumption is
+negative. The raw readings and sleep-inclusive monotonic duration remain
+available for later analysis without reducing them to a potentially misleading
+single estimate.
+
 The stream listens on port `7432` without authentication. Expose it only on a
 trusted local network or through a private network transport.
 
@@ -67,6 +78,7 @@ Use the firmware-matched SDK and `app/scripts/link-with-remarkable-sdk`; the
 host workspace tests exercise the portable modules without linking those
 libraries.
 
-The service definitions under `../deploy/` make the transition mutually
-exclusive with Xochitl. The native-tile launcher clears only Xochitl's stale
-`LastOpen` recovery marker after Xochitl has stopped.
+The service and sleep definitions under `../deploy/` make the transition
+mutually exclusive with Xochitl and configure hibernation after four hours.
+The native-tile launcher clears only Xochitl's stale `LastOpen` recovery marker
+after Xochitl has stopped.
