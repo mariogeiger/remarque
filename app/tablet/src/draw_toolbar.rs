@@ -2,10 +2,10 @@ use crate::bgra_image::BgraImage;
 use crate::color::Color;
 use crate::draw_text::{draw_text, measure_text_width};
 use crate::fineliner::FinelinerThickness;
+use crate::render_page_view::OUTSIDE_PAGE_RGB;
 use crate::toolbar::{self, ToolbarAction, ToolbarActionRegion};
 
 pub(crate) const HEIGHT: usize = 84;
-const BACKGROUND: [u8; 3] = [0xff, 0xff, 0xff];
 const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
 const SHADOW: [u8; 3] = [0xd8, 0xd6, 0xd0];
 const SELECTED: [u8; 3] = [0xd8, 0xe8, 0xf6];
@@ -18,7 +18,7 @@ pub(crate) fn draw_toolbar(
     page_number: u32,
     page_count: u32,
 ) {
-    image.fill_rectangle(0, 0, image.width(), HEIGHT, BACKGROUND);
+    image.fill_rectangle(0, 0, image.width(), HEIGHT, OUTSIDE_PAGE_RGB);
     image.fill_rounded_rectangle(
         toolbar::PANEL_X,
         toolbar::PANEL_Y + 2,

@@ -1,16 +1,16 @@
-use crate::battery::{BatteryReading, read_battery};
+use crate::battery::read_battery;
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
+use crate::device_status::format_device_status;
 use crate::display::{QuillDisplay, Rectangle};
 use crate::document_library::{DocumentLibrary, restore_document_library, save_document_library};
 use crate::draw_document_library::{
-    DocumentLibraryAction, document_library_action_at, draw_document_library,
+    DEVICE_STATUS_RECTANGLE, DocumentLibraryAction, document_library_action_at, draw_device_status,
+    draw_document_library,
 };
 use crate::draw_sleep_screen::draw_sleep_screen;
 use crate::draw_toolbar::{HEIGHT as TOOLBAR_HEIGHT, draw_toolbar};
-use crate::draw_viewport_indicators::{
-    draw_viewport_indicators, viewport_indicators_visible_at_scale,
-};
+use crate::draw_viewport_indicators::draw_viewport_indicators;
 use crate::edge_page_swipe::{page_delta_from_edge_swipe, starts_at_page_edge};
 use crate::erase_strokes::{EraserThickness, erase_stroke};
 use crate::export_document_pages::export_document_pages;
@@ -20,15 +20,17 @@ use crate::page::Page;
 use crate::pdfium::read_pdf_page_sizes;
 use crate::render_fineliner::{FinelinerRasterizer, render_fineliner_raster_points};
 use crate::render_page_view::{
-    eraser_preview_point, fineliner_segment_rectangle, identity_transform, midpoint,
-    rectangle_contains_point, transform_background_nearest_neighbor, transform_stroke_point,
+    eraser_preview_point, fineliner_segment_rectangle, identity_transform,
+    transform_background_nearest_neighbor, transform_stroke_point,
 };
 use crate::stroke::{PenSample, Stroke};
 use crate::toolbar::{ToolbarAction, toolbar_action_at_x};
-use crate::touch_gesture::{OneFingerGesture, TouchGestureEvent, TouchGestureRecognizer};
+use crate::touch_gesture::{
+    OneFingerGesture, PinchScaleStart, TouchGestureEvent, TouchGestureRecognizer,
+};
 use crate::touch_tap::TapSurface;
-use crate::view_transform::{Bounds, Point, Size, ViewTransform, two_finger_scale};
-use crate::wifi::{WifiConnection, read_wifi_connection};
+use crate::view_transform::{Bounds, Point, Size, ViewTransform};
+use crate::wifi::read_wifi_connection;
 use remarque_document::{DocumentSummary, ExportScope};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -37,6 +39,9 @@ use std::time::{Duration, Instant};
 
 const PINCH_RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const DEVICE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+const MINIMUM_SCALE: f64 = 1.0;
+const MAXIMUM_SCALE: f64 = 5.0;
+const MINIMUM_SCALE_PINCH_SEPARATION_BARRIER_RATIO: f64 = 0.02;
 
 enum PenContact {
     Fineliner {
@@ -79,8 +84,8 @@ pub struct Notebook {
     pen_proximity: bool,
     touch_gestures: TouchGestureRecognizer,
     last_pinch_render: Instant,
-    battery: Option<BatteryReading>,
-    wifi: WifiConnection,
+    transform_pixels_need_render: bool,
+    device_status: String,
     last_device_status_read: Instant,
 }
 
@@ -110,15 +115,14 @@ impl Notebook {
             pen_proximity: false,
             touch_gestures: TouchGestureRecognizer::default(),
             last_pinch_render: Instant::now(),
-            battery: None,
-            wifi: WifiConnection::Unavailable,
+            transform_pixels_need_render: false,
+            device_status: String::new(),
             last_device_status_read: Instant::now(),
         };
         if let Err(error) = notebook.restore_state() {
             eprintln!("notebook_state_ignored={error}");
         }
         notebook.redraw_document_library()?;
-        notebook.display.show_color_full();
         Ok(notebook)
     }
 
@@ -140,7 +144,7 @@ impl Notebook {
     pub fn show_sleep_screen(&mut self) -> io::Result<()> {
         draw_sleep_screen(&mut self.image);
         let full = Rectangle::full(self.image.width(), self.image.height());
-        self.display.copy_from(&self.image, full)?;
+        self.display.copy_changed_from(&self.image, full)?;
         self.display.show_color_full();
         Ok(())
     }
@@ -161,15 +165,13 @@ impl Notebook {
         {
             return Ok(());
         }
-        let battery = read_battery().ok();
-        let wifi = read_wifi_connection();
+        let device_status = format_device_status(read_battery().ok(), read_wifi_connection());
         self.last_device_status_read = Instant::now();
-        if battery == self.battery && wifi == self.wifi {
+        if device_status == self.device_status {
             return Ok(());
         }
-        self.battery = battery;
-        self.wifi = wifi;
-        self.redraw_document_library_from_current_status()
+        self.device_status = device_status;
+        self.redraw_device_status()
     }
 
     pub fn import_pdf(
@@ -278,6 +280,16 @@ impl Notebook {
             return Ok(false);
         }
 
+        if matches!(
+            self.active_pen_contact.as_ref(),
+            Some(PenContact::Fineliner { .. } | PenContact::Eraser { .. })
+        ) && !self.page_contains_drawable_view_point(frame.position)?
+        {
+            self.finish_pen_contact()?;
+            self.active_pen_contact = Some(PenContact::OutsidePage);
+            return Ok(false);
+        }
+
         if self.active_pen_contact.is_none() {
             if frame.position.y < TOOLBAR_HEIGHT as f64 {
                 self.apply_toolbar_action(toolbar_action_at_x(frame.position.x as usize))?;
@@ -287,8 +299,7 @@ impl Notebook {
                 }
                 return Ok(false);
             }
-            if !rectangle_contains_point(self.page()?.rectangle, self.view_to_scene(frame.position))
-            {
+            if !self.page_contains_drawable_view_point(frame.position)? {
                 self.active_pen_contact = Some(PenContact::OutsidePage);
                 return Ok(false);
             }
@@ -307,12 +318,12 @@ impl Notebook {
         }
 
         let scene_position = self.view_to_scene(frame.position);
-        let viewport = self.viewport();
+        let view_size = self.view_size();
         let contact = self
             .active_pen_contact
             .as_mut()
             .ok_or_else(|| io::Error::other("touching pen has no active contact"))?;
-        match contact {
+        let changed = match contact {
             PenContact::Fineliner {
                 builder,
                 color: _,
@@ -327,12 +338,12 @@ impl Notebook {
                     },
                     self.transform.scale as f32,
                 );
-                let screen_point = transform_stroke_point(point, self.transform, viewport);
+                let screen_point = transform_stroke_point(point, self.transform, view_size);
                 let screen_previous = builder
                     .points()
                     .get(builder.points().len().saturating_sub(2))
                     .copied()
-                    .map(|previous| transform_stroke_point(previous, self.transform, viewport))
+                    .map(|previous| transform_stroke_point(previous, self.transform, view_size))
                     .unwrap_or(screen_point);
                 rasterizer.append_point(&mut self.image, screen_point);
                 let changed = fineliner_segment_rectangle(
@@ -342,16 +353,15 @@ impl Notebook {
                     self.image.height(),
                 );
                 *dirty = Some(dirty.map_or(changed, |dirty| dirty.include(changed)));
-                self.display.copy_from(&self.image, changed)?;
-                self.display.show_mono_fast(changed);
+                changed
             }
             PenContact::Eraser { centerline, cursor } => {
                 let previous = centerline.last().copied().unwrap_or(scene_position);
                 centerline.push(scene_position);
                 let width = self.eraser_thickness.pixels() * self.transform.scale;
                 let preview = [
-                    eraser_preview_point(previous, width, self.transform, viewport),
-                    eraser_preview_point(scene_position, width, self.transform, viewport),
+                    eraser_preview_point(previous, width, self.transform, view_size),
+                    eraser_preview_point(scene_position, width, self.transform, view_size),
                 ];
                 let mut changed = fineliner_segment_rectangle(
                     preview[0],
@@ -393,11 +403,17 @@ impl Notebook {
                     pixels,
                 });
                 changed = changed.include(cursor_rectangle);
-                self.display.copy_from(&self.image, changed)?;
-                self.display.show_mono_fast(changed);
+                changed
             }
-            PenContact::Toolbar | PenContact::Library => {}
-            PenContact::OutsidePage => {}
+            PenContact::Toolbar | PenContact::Library | PenContact::OutsidePage => {
+                return Ok(false);
+            }
+        };
+        if changed.y < TOOLBAR_HEIGHT {
+            self.draw_toolbar_into_image()?;
+        }
+        if let Some(changed) = self.display.copy_changed_from(&self.image, changed)? {
+            self.display.show_mono_fast(changed);
         }
         Ok(false)
     }
@@ -411,19 +427,27 @@ impl Notebook {
             .transpose()?
             .map_or(0, |summary| summary.page_count);
         let screen_width = self.width() as f64;
-        let event = self
-            .touch_gestures
-            .update(&frame, self.pen_proximity, |position| {
-                if !document_is_open {
-                    Some(OneFingerGesture::Tap(TapSurface::DocumentLibrary))
-                } else if position.y < TOOLBAR_HEIGHT as f64 {
-                    Some(OneFingerGesture::Tap(TapSurface::Toolbar))
-                } else if page_count > 1 && starts_at_page_edge(position, screen_width) {
-                    Some(OneFingerGesture::PageSwipe)
-                } else {
-                    None
-                }
-            });
+        let pinch_scale_start = if self.transform.scale <= MINIMUM_SCALE {
+            let view = self.view_size();
+            PinchScaleStart::AfterSeparationIncrease(
+                view.width.min(view.height) * MINIMUM_SCALE_PINCH_SEPARATION_BARRIER_RATIO,
+            )
+        } else {
+            PinchScaleStart::Immediate
+        };
+        let event =
+            self.touch_gestures
+                .update(&frame, self.pen_proximity, pinch_scale_start, |position| {
+                    if !document_is_open {
+                        Some(OneFingerGesture::Tap(TapSurface::DocumentLibrary))
+                    } else if position.y < TOOLBAR_HEIGHT as f64 {
+                        Some(OneFingerGesture::Tap(TapSurface::Toolbar))
+                    } else if page_count > 1 && starts_at_page_edge(position, screen_width) {
+                        Some(OneFingerGesture::PageSwipe)
+                    } else {
+                        None
+                    }
+                });
         match event {
             Some(TouchGestureEvent::Tap { surface, position }) => {
                 return self.apply_touch_tap(surface, position);
@@ -433,9 +457,13 @@ impl Notebook {
                     self.change_page(delta)?;
                 }
             }
-            Some(TouchGestureEvent::PinchChanged { previous, current }) => {
+            Some(TouchGestureEvent::PinchChanged {
+                previous_centroid,
+                current_centroid,
+                scale_factor,
+            }) => {
                 if document_is_open {
-                    self.apply_pinch_change(previous, current)?;
+                    self.apply_pinch_change(previous_centroid, current_centroid, scale_factor)?;
                 }
             }
             Some(TouchGestureEvent::PinchFinished) if document_is_open => self.finish_pinch()?,
@@ -466,35 +494,47 @@ impl Notebook {
         }
     }
 
-    fn apply_pinch_change(&mut self, previous: [Point; 2], current: [Point; 2]) -> io::Result<()> {
-        let Some(factor) = two_finger_scale(previous, current) else {
-            return Ok(());
-        };
-        let previous_centroid = midpoint(previous);
-        let current_centroid = midpoint(current);
-        let target_scale = (self.transform.scale * factor).clamp(1.0, 5.0);
-        let adjusted_factor = target_scale / self.transform.scale;
+    fn apply_pinch_change(
+        &mut self,
+        previous_centroid: Point,
+        current_centroid: Point,
+        scale_factor: f64,
+    ) -> io::Result<()> {
+        let scale_factor = self.transform.factor_clamped_to_scale_limits(
+            scale_factor,
+            MINIMUM_SCALE,
+            MAXIMUM_SCALE,
+        );
         if let Some(transform) = self.transform.scale_and_translate(
             previous_centroid,
             current_centroid,
-            adjusted_factor,
-            self.viewport(),
-            self.scene_bounds()?,
-        ) {
+            scale_factor,
+            self.view_size(),
+            self.drawable_view_bounds(),
+            self.page_bounds()?,
+        ) && transform != self.transform
+        {
             self.transform = transform;
+            self.transform_pixels_need_render = true;
         }
-        if self.last_pinch_render.elapsed() >= PINCH_RENDER_INTERVAL {
-            self.redraw_notebook()?;
-            self.display
-                .show_mono_fast(Rectangle::full(self.image.width(), self.image.height()));
+        if self.transform_pixels_need_render
+            && self.last_pinch_render.elapsed() >= PINCH_RENDER_INTERVAL
+        {
+            if let Some(changed) = self.redraw_notebook()? {
+                self.display.show_mono_fast(changed);
+            }
             self.last_pinch_render = Instant::now();
         }
         Ok(())
     }
 
     fn finish_pinch(&mut self) -> io::Result<()> {
-        self.redraw_notebook()?;
-        self.display.show_color_full();
+        let changed = if self.transform_pixels_need_render {
+            self.redraw_notebook()?
+        } else {
+            None
+        };
+        self.display.show_color(changed);
         Ok(())
     }
 
@@ -523,8 +563,11 @@ impl Notebook {
                     self.save_state()?;
                 }
                 if let Some(dirty) = dirty {
-                    self.display.copy_from(&self.image, dirty)?;
-                    self.display.show_color(dirty);
+                    if dirty.y < TOOLBAR_HEIGHT {
+                        self.draw_toolbar_into_image()?;
+                    }
+                    let changed = self.display.copy_changed_from(&self.image, dirty)?;
+                    self.display.show_color(changed);
                 }
             }
             Some(PenContact::Eraser { centerline, .. }) => {
@@ -552,8 +595,8 @@ impl Notebook {
                     }
                     page.strokes = surviving;
                     self.save_state()?;
-                    self.redraw_notebook()?;
-                    self.display.show_color_full();
+                    let changed = self.redraw_notebook()?;
+                    self.display.show_color(changed);
                 }
             }
             Some(PenContact::OutsidePage | PenContact::Toolbar | PenContact::Library) | None => {}
@@ -572,35 +615,30 @@ impl Notebook {
         Ok(())
     }
 
-    fn redraw_notebook(&mut self) -> io::Result<()> {
+    fn redraw_notebook(&mut self) -> io::Result<Option<Rectangle>> {
         self.image = self.render_scene(self.transform)?;
-        let document = self.library.document_summary(self.open_document_id()?)?;
-        draw_toolbar(
-            &mut self.image,
-            self.fineliner_thickness,
-            self.color,
-            document.page_number,
-            document.page_count,
-        );
-        if viewport_indicators_visible_at_scale(self.transform.scale) {
-            let viewport = self.viewport();
-            let scene = self.scene_bounds()?.size;
-            draw_viewport_indicators(&mut self.image, self.transform, viewport, scene);
-        }
-        self.display.copy_from(
+        self.draw_toolbar_into_image()?;
+        let transform = self.transform;
+        let view_size = self.view_size();
+        let visible_view = self.drawable_view_bounds();
+        let page = self.page_bounds()?;
+        draw_viewport_indicators(&mut self.image, transform, view_size, visible_view, page);
+        let changed = self.display.copy_changed_from(
             &self.image,
             Rectangle::full(self.image.width(), self.image.height()),
-        )
+        )?;
+        self.transform_pixels_need_render = false;
+        Ok(changed)
     }
 
     fn render_scene(&self, transform: ViewTransform) -> io::Result<BgraImage> {
-        let viewport = self.viewport();
+        let view_size = self.view_size();
         let page = self.page()?;
         let background = page.raster_background(self.width(), self.height());
         let mut image = transform_background_nearest_neighbor(
             &background,
             transform,
-            viewport,
+            view_size,
             self.width(),
             self.height(),
             TOOLBAR_HEIGHT,
@@ -613,7 +651,7 @@ impl Notebook {
                 .map(|mut point| {
                     point.x += page.rectangle.x as f32;
                     point.y += page.rectangle.y as f32;
-                    transform_stroke_point(point, transform, viewport)
+                    transform_stroke_point(point, transform, view_size)
                 })
                 .collect();
             render_fineliner_raster_points(&mut image, &points, stroke.color);
@@ -673,8 +711,7 @@ impl Notebook {
     }
 
     fn redraw_document_library(&mut self) -> io::Result<()> {
-        self.battery = read_battery().ok();
-        self.wifi = read_wifi_connection();
+        self.device_status = format_device_status(read_battery().ok(), read_wifi_connection());
         self.last_device_status_read = Instant::now();
         self.redraw_document_library_from_current_status()
     }
@@ -685,12 +722,20 @@ impl Notebook {
             &mut self.image,
             &documents,
             self.library_screen_index,
-            self.battery,
-            self.wifi,
+            &self.device_status,
         );
         let full = Rectangle::full(self.image.width(), self.image.height());
-        self.display.copy_from(&self.image, full)?;
+        self.display.copy_changed_from(&self.image, full)?;
         self.display.show_color_full();
+        Ok(())
+    }
+
+    fn redraw_device_status(&mut self) -> io::Result<()> {
+        draw_device_status(&mut self.image, &self.device_status);
+        let changed = self
+            .display
+            .copy_changed_from(&self.image, DEVICE_STATUS_RECTANGLE)?;
+        self.display.show_color(changed);
         Ok(())
     }
 
@@ -717,6 +762,19 @@ impl Notebook {
     }
 
     fn redraw_toolbar(&mut self) -> io::Result<()> {
+        self.draw_toolbar_into_image()?;
+        let toolbar = Rectangle {
+            x: 0,
+            y: 0,
+            width: self.image.width(),
+            height: TOOLBAR_HEIGHT,
+        };
+        let changed = self.display.copy_changed_from(&self.image, toolbar)?;
+        self.display.show_color(changed);
+        Ok(())
+    }
+
+    fn draw_toolbar_into_image(&mut self) -> io::Result<()> {
         let document = self.library.document_summary(self.open_document_id()?)?;
         draw_toolbar(
             &mut self.image,
@@ -725,14 +783,6 @@ impl Notebook {
             document.page_number,
             document.page_count,
         );
-        let toolbar = Rectangle {
-            x: 0,
-            y: 0,
-            width: self.image.width(),
-            height: TOOLBAR_HEIGHT,
-        };
-        self.display.copy_from(&self.image, toolbar)?;
-        self.display.show_color(toolbar);
         Ok(())
     }
 
@@ -752,25 +802,46 @@ impl Notebook {
     }
 
     fn view_to_scene(&self, point: Point) -> Point {
-        self.transform.view_to_scene(point, self.viewport())
+        self.transform.view_to_scene(point, self.view_size())
     }
 
-    fn viewport(&self) -> Size {
+    fn view_size(&self) -> Size {
         Size {
             width: self.display.width() as f64,
             height: self.display.height() as f64,
         }
     }
 
-    fn scene_bounds(&self) -> io::Result<Bounds> {
-        let page = self.page()?;
-        Ok(Bounds {
-            origin: Point { x: 0.0, y: 0.0 },
+    fn drawable_view_bounds(&self) -> Bounds {
+        Bounds {
+            origin: Point {
+                x: 0.0,
+                y: TOOLBAR_HEIGHT as f64,
+            },
             size: Size {
-                width: page.scene_width(self.width()) as f64,
-                height: page.scene_height(self.height()) as f64,
+                width: self.width() as f64,
+                height: self.height().saturating_sub(TOOLBAR_HEIGHT) as f64,
+            },
+        }
+    }
+
+    fn page_bounds(&self) -> io::Result<Bounds> {
+        let rectangle = self.page()?.rectangle;
+        Ok(Bounds {
+            origin: Point {
+                x: rectangle.x as f64,
+                y: rectangle.y as f64,
+            },
+            size: Size {
+                width: rectangle.width as f64,
+                height: rectangle.height as f64,
             },
         })
+    }
+
+    fn page_contains_drawable_view_point(&self, point: Point) -> io::Result<bool> {
+        Ok(self.drawable_view_bounds().contains(point)
+            && self.page_bounds()?.contains(self.view_to_scene(point)))
     }
 
     fn open_document_id(&self) -> io::Result<&str> {

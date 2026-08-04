@@ -1,4 +1,5 @@
 use crate::bgra_image::{BgraImage, PixelRectangle};
+use crate::render_page_view::OUTSIDE_PAGE_RGB;
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -43,7 +44,6 @@ unsafe extern "C" {
     fn FPDF_CloseDocument(document: PdfDocumentPointer);
 }
 
-const OUTSIDE_PAGE: [u8; 3] = [0xe5, 0xe4, 0xe1];
 const FPDF_ANNOT: c_int = 0x01;
 const MAXIMUM_PAGE_RASTER_HEIGHT: usize = 8192;
 static INITIALIZE_PDFIUM: Once = Once::new();
@@ -123,7 +123,7 @@ pub(crate) fn render_pdf_page(
         .ok_or_else(|| io::Error::other("PDFium returned a null bitmap buffer"))?;
     let source = unsafe { std::slice::from_raw_parts(buffer.as_ptr(), stride * render_height) };
     let background_height = canvas_height.max(content_top + render_height);
-    let mut background = BgraImage::filled(canvas_width, background_height, OUTSIDE_PAGE);
+    let mut background = BgraImage::filled(canvas_width, background_height, OUTSIDE_PAGE_RGB);
     background
         .copy_bgra_rectangle(0, content_top, render_width, render_height, stride, source)
         .map_err(io::Error::other)?;

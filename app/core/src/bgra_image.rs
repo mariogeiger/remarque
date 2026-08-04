@@ -99,6 +99,68 @@ impl BgraImage {
         self.pixels[offset..offset + 4].try_into().unwrap()
     }
 
+    pub fn difference_rectangle_against_strided_bgra(
+        &self,
+        other: &[u8],
+        other_stride: usize,
+        rectangle: PixelRectangle,
+    ) -> Result<Option<PixelRectangle>, &'static str> {
+        let row_bytes = self
+            .width
+            .checked_mul(4)
+            .ok_or("BGRA image dimensions overflow")?;
+        let other_bytes = other_stride
+            .checked_mul(self.height)
+            .ok_or("BGRA image dimensions overflow")?;
+        if other_stride < row_bytes || other.len() < other_bytes {
+            return Err("BGRA comparison image is smaller than the image");
+        }
+
+        let right = rectangle.x.saturating_add(rectangle.width).min(self.width);
+        let bottom = rectangle
+            .y
+            .saturating_add(rectangle.height)
+            .min(self.height);
+        let left = rectangle.x.min(right);
+        let top = rectangle.y.min(bottom);
+        let compared_row_bytes = (right - left) * 4;
+        let mut difference_left = right;
+        let mut difference_right = left;
+        let mut difference_top = bottom;
+        let mut difference_bottom = top;
+        for y in top..bottom {
+            let offset = (y * self.width + left) * 4;
+            let other_offset = y * other_stride + left * 4;
+            let row = &self.pixels[offset..offset + compared_row_bytes];
+            let other_row = &other[other_offset..other_offset + compared_row_bytes];
+            if row == other_row {
+                continue;
+            }
+            let first = row
+                .chunks_exact(4)
+                .zip(other_row.chunks_exact(4))
+                .position(|(pixel, other_pixel)| pixel != other_pixel)
+                .unwrap();
+            let last = row
+                .chunks_exact(4)
+                .zip(other_row.chunks_exact(4))
+                .rposition(|(pixel, other_pixel)| pixel != other_pixel)
+                .unwrap();
+            difference_left = difference_left.min(left + first);
+            difference_right = difference_right.max(left + last + 1);
+            difference_top = difference_top.min(y);
+            difference_bottom = y + 1;
+        }
+        Ok(
+            (difference_top < difference_bottom).then(|| PixelRectangle {
+                x: difference_left,
+                y: difference_top,
+                width: difference_right - difference_left,
+                height: difference_bottom - difference_top,
+            }),
+        )
+    }
+
     pub fn fill_rectangle(
         &mut self,
         x: usize,
@@ -335,5 +397,54 @@ mod tests {
             .unwrap();
         assert_eq!(image.pixel(1, 0), [1, 2, 3, 4]);
         assert_eq!(image.pixel(2, 1), [13, 14, 15, 16]);
+    }
+
+    #[test]
+    fn locates_only_different_pixels_in_strided_bgra() {
+        let image = BgraImage::filled(3, 2, [255, 255, 255]);
+        let mut other = vec![255; 32];
+        other[3] = 255;
+        other[16 + 4] = 0;
+        other[16 + 8] = 0;
+
+        assert_eq!(
+            image
+                .difference_rectangle_against_strided_bgra(&other, 16, PixelRectangle::full(3, 2),)
+                .unwrap(),
+            Some(PixelRectangle {
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn reports_no_difference_for_identical_pixels_or_changes_outside_the_rectangle() {
+        let image = BgraImage::filled(2, 2, [255, 255, 255]);
+        let mut other = image.pixels().to_vec();
+        assert_eq!(
+            image
+                .difference_rectangle_against_strided_bgra(&other, 8, PixelRectangle::full(2, 2),)
+                .unwrap(),
+            None
+        );
+        other[0] = 0;
+        assert_eq!(
+            image
+                .difference_rectangle_against_strided_bgra(
+                    &other,
+                    8,
+                    PixelRectangle {
+                        x: 1,
+                        y: 0,
+                        width: 1,
+                        height: 2,
+                    },
+                )
+                .unwrap(),
+            None
+        );
     }
 }

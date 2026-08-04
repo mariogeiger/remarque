@@ -17,6 +17,24 @@ All notable user-visible changes to this project are documented here.
 
 - Battery and Wi-Fi status refresh automatically while the library remains
   visible and after wake.
+- Device-status changes refresh only their library-header region, and raw
+  charge fluctuations no longer trigger redraws when the displayed status is
+  unchanged.
+- Position indicators compare the visible page area below the toolbar with the
+  page bounds, so every partially visible axis has a proportional indicator at
+  every scale.
+- The toolbar band uses the page-surround color, remains above page ink, and
+  terminates pen contacts that leave the drawable page.
+- A new screen-viewer connection replaces any previous viewer, including one
+  blocked while sending its initial frame.
+- A pinch beginning at minimum zoom keeps translating without scaling until
+  finger separation crosses a screen-proportional activation barrier.
+- Local display updates use the exact changed-pixel bounds. No-op gestures and
+  unchanged controls queue no panel update, while every fast monochrome region
+  still receives one partial color cleanup.
+- Pinch and eraser completion use partial color cleanup instead of a complete
+  screen refresh, and application startup no longer repeats its initial full
+  refresh.
 
 ## 0.8.0 - 2026-08-04
 

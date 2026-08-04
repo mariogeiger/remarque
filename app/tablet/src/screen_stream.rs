@@ -1,31 +1,36 @@
 use crate::display::QuillDisplay;
 use crate::screen_stream_protocol::{encode_changed_pixels, encode_full_frame};
 use axum::Router;
-use axum::extract::State;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Query, State};
+use axum::http::header::CACHE_CONTROL;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
+use serde::Deserialize;
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::watch;
 
 const LISTEN_ADDRESS: &str = "0.0.0.0:7432";
 const STREAM_INTERVAL: Duration = Duration::from_millis(100);
+const VIEWER_REPLACED_CLOSE_CODE: u16 = 4000;
 
 #[derive(Clone)]
 struct ScreenStreamState {
     display: Arc<QuillDisplay>,
-    streaming: Arc<AtomicBool>,
+    connection_generation: watch::Sender<u64>,
+    viewer_session: u64,
+    next_viewer_generation: Arc<AtomicU64>,
+    active_viewer_generation: Arc<AtomicU64>,
 }
 
-struct StreamingLease(Arc<AtomicBool>);
-
-impl Drop for StreamingLease {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
+#[derive(Deserialize)]
+struct ViewerQuery {
+    session: u64,
+    viewer: u64,
 }
 
 pub fn start_screen_stream(display: Arc<QuillDisplay>) -> io::Result<thread::JoinHandle<()>> {
@@ -51,7 +56,10 @@ pub fn start_screen_stream(display: Arc<QuillDisplay>) -> io::Result<thread::Joi
                     .route("/ws/3", get(upgrade_websocket))
                     .with_state(ScreenStreamState {
                         display,
-                        streaming: Arc::new(AtomicBool::new(false)),
+                        connection_generation: watch::channel(0).0,
+                        viewer_session: current_time_nanoseconds(),
+                        next_viewer_generation: Arc::new(AtomicU64::new(0)),
+                        active_viewer_generation: Arc::new(AtomicU64::new(0)),
                     });
                 axum::serve(listener, router)
                     .await
@@ -64,29 +72,59 @@ pub fn start_screen_stream(display: Arc<QuillDisplay>) -> io::Result<thread::Joi
         .map_err(io::Error::other)
 }
 
-async fn screen_viewer() -> Html<&'static str> {
-    Html(include_str!("../assets/screen-viewer.html"))
+async fn screen_viewer(State(state): State<ScreenStreamState>) -> impl IntoResponse {
+    let viewer_generation = state
+        .next_viewer_generation
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
+    let html = include_str!("../assets/screen-viewer.html")
+        .replace(
+            "__REMARQUE_VIEWER_SESSION__",
+            &state.viewer_session.to_string(),
+        )
+        .replace(
+            "__REMARQUE_VIEWER_GENERATION__",
+            &viewer_generation.to_string(),
+        );
+    ([(CACHE_CONTROL, "no-store")], Html(html))
 }
 
 async fn upgrade_websocket(
     websocket: WebSocketUpgrade,
+    Query(query): Query<ViewerQuery>,
     State(state): State<ScreenStreamState>,
 ) -> impl IntoResponse {
-    websocket.on_upgrade(move |socket| stream_display_changes(socket, state))
+    websocket.on_upgrade(move |socket| stream_display_changes(socket, state, query))
 }
 
-async fn stream_display_changes(mut socket: WebSocket, state: ScreenStreamState) {
-    if state.streaming.swap(true, Ordering::AcqRel) {
+async fn stream_display_changes(
+    mut socket: WebSocket,
+    state: ScreenStreamState,
+    viewer: ViewerQuery,
+) {
+    if viewer.session != state.viewer_session
+        || !claim_viewer_generation(&state.active_viewer_generation, viewer.viewer)
+    {
+        let _ = socket
+            .send(Message::Close(Some(CloseFrame {
+                code: VIEWER_REPLACED_CLOSE_CODE,
+                reason: "replaced by a newer viewer".into(),
+            })))
+            .await;
         return;
     }
-    let _streaming_lease = StreamingLease(Arc::clone(&state.streaming));
+    let generation = (*state.connection_generation.borrow()).wrapping_add(1);
+    state.connection_generation.send_replace(generation);
+    let mut connection_generation = state.connection_generation.subscribe();
     let mut previous = state.display.copy_snapshot();
-    if socket
-        .send(Message::Binary(
+    if !send_until_replaced(
+        &mut socket,
+        Message::Binary(
             encode_full_frame(previous.width, previous.height, &previous.pixels).into(),
-        ))
-        .await
-        .is_err()
+        ),
+        &mut connection_generation,
+    )
+    .await
     {
         return;
     }
@@ -112,11 +150,16 @@ async fn stream_display_changes(mut socket: WebSocket, state: ScreenStreamState)
                 };
                 previous = current;
                 if let Some(message) = message
-                    && socket.send(Message::Binary(message.into())).await.is_err()
+                    && !send_until_replaced(
+                        &mut socket,
+                        Message::Binary(message.into()),
+                        &mut connection_generation,
+                    ).await
                 {
                     return;
                 }
             }
+            _ = connection_generation.changed() => return,
             incoming = socket.recv() => {
                 match incoming {
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
@@ -125,4 +168,39 @@ async fn stream_display_changes(mut socket: WebSocket, state: ScreenStreamState)
             }
         }
     }
+}
+
+async fn send_until_replaced(
+    socket: &mut WebSocket,
+    message: Message,
+    connection_generation: &mut watch::Receiver<u64>,
+) -> bool {
+    tokio::select! {
+        result = socket.send(message) => result.is_ok(),
+        _ = connection_generation.changed() => false,
+    }
+}
+
+fn claim_viewer_generation(active: &AtomicU64, candidate: u64) -> bool {
+    let mut current = active.load(Ordering::Acquire);
+    loop {
+        if candidate < current {
+            return false;
+        }
+        if candidate == current {
+            return true;
+        }
+        match active.compare_exchange_weak(current, candidate, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn current_time_nanoseconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
 }

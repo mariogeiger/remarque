@@ -117,18 +117,6 @@ impl Page {
             .clone()
             .unwrap_or_else(|| BgraImage::filled(canvas_width, canvas_height, WHITE))
     }
-
-    pub fn scene_width(&self, canvas_width: usize) -> usize {
-        self.background
-            .as_ref()
-            .map_or(canvas_width, BgraImage::width)
-    }
-
-    pub fn scene_height(&self, canvas_height: usize) -> usize {
-        self.background
-            .as_ref()
-            .map_or(canvas_height, BgraImage::height)
-    }
 }
 
 #[cfg(test)]
@@ -149,8 +137,6 @@ mod tests {
             ]
         );
         assert!(page.strokes.is_empty());
-        assert_eq!(page.scene_width(120), 120);
-        assert_eq!(page.scene_height(200), 200);
         assert_eq!(
             page.raster_background(120, 200).pixel(0, 199),
             [0xff, 0xff, 0xff, 0xff]

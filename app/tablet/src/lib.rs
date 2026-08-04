@@ -1,5 +1,7 @@
 #[cfg(any(feature = "takeover", test))]
 pub mod battery;
+#[cfg(any(feature = "takeover", test))]
+mod device_status;
 #[cfg(feature = "takeover")]
 pub mod display;
 #[cfg(any(feature = "takeover", test))]
@@ -52,6 +54,7 @@ pub mod wifi;
 pub use remarque_core::bgra_image;
 pub use remarque_core::color;
 pub use remarque_core::erase_strokes;
+pub use remarque_core::fast_mono_cleanup;
 pub use remarque_core::fineliner;
 pub use remarque_core::render_fineliner;
 pub use remarque_core::stroke;

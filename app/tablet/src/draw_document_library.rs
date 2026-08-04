@@ -1,11 +1,12 @@
-use crate::battery::{BatteryReading, BatteryState};
-use crate::bgra_image::BgraImage;
+use crate::bgra_image::{BgraImage, PixelRectangle};
 use crate::draw_text::draw_text;
 use crate::view_transform::Point;
-use crate::wifi::WifiConnection;
 use remarque_document::DocumentSummary;
 
 const HEADER_HEIGHT: usize = 128;
+const HEADER_COLOR: [u8; 3] = [0xfa, 0xf9, 0xf6];
+const DEVICE_STATUS_X: usize = 470;
+const DEVICE_STATUS_TEXT_WIDTH: usize = 570;
 const ROW_X: usize = 64;
 const ROW_WIDTH: usize = 1492;
 const ROW_START_Y: usize = 160;
@@ -15,6 +16,12 @@ const NEW_NOTEBOOK_X: usize = 1080;
 const NEW_NOTEBOOK_WIDTH: usize = 340;
 const QUIT_X: usize = 1450;
 const QUIT_WIDTH: usize = 130;
+pub(crate) const DEVICE_STATUS_RECTANGLE: PixelRectangle = PixelRectangle {
+    x: DEVICE_STATUS_X,
+    y: 0,
+    width: NEW_NOTEBOOK_X - DEVICE_STATUS_X,
+    height: HEADER_HEIGHT,
+};
 pub(crate) const DOCUMENTS_PER_SCREEN: usize = 13;
 
 pub(crate) enum DocumentLibraryAction {
@@ -30,13 +37,12 @@ pub(crate) fn draw_document_library(
     image: &mut BgraImage,
     documents: &[DocumentSummary],
     screen_index: usize,
-    battery: Option<BatteryReading>,
-    wifi: WifiConnection,
+    device_status: &str,
 ) {
     image.fill_rectangle(0, 0, image.width(), image.height(), [0xe8, 0xe7, 0xe2]);
-    image.fill_rectangle(0, 0, image.width(), HEADER_HEIGHT, [0xfa, 0xf9, 0xf6]);
+    image.fill_rectangle(0, 0, image.width(), HEADER_HEIGHT, HEADER_COLOR);
     draw_text(image, 64, 82, "Bibliothèque", 38, 700, [0x25, 0x25, 0x24]);
-    draw_device_status(image, battery, wifi);
+    draw_device_status(image, device_status);
     draw_new_notebook_button(image);
     draw_quit_button(image);
 
@@ -52,33 +58,21 @@ pub(crate) fn draw_document_library(
     draw_screen_navigation(image, documents.len(), screen_index);
 }
 
-fn draw_device_status(
-    image: &mut BgraImage,
-    battery: Option<BatteryReading>,
-    wifi: WifiConnection,
-) {
-    let wifi = match wifi {
-        WifiConnection::Connected => "Wi-Fi connecté",
-        WifiConnection::Disconnected => "Wi-Fi déconnecté",
-        WifiConnection::Unavailable => "Wi-Fi indisponible",
-    };
-    let battery = battery.map_or_else(
-        || "Batterie indisponible".to_owned(),
-        |reading| {
-            let charging = match reading.state {
-                BatteryState::Charging => " · en charge",
-                BatteryState::Full | BatteryState::Discharging | BatteryState::Unknown => "",
-            };
-            format!("Batterie {} %{charging}", reading.percentage)
-        },
+pub(crate) fn draw_device_status(image: &mut BgraImage, device_status: &str) {
+    image.fill_rectangle(
+        DEVICE_STATUS_RECTANGLE.x,
+        DEVICE_STATUS_RECTANGLE.y,
+        DEVICE_STATUS_RECTANGLE.width,
+        DEVICE_STATUS_RECTANGLE.height,
+        HEADER_COLOR,
     );
     draw_text(
         image,
-        470,
+        DEVICE_STATUS_X,
         76,
-        &format!("{wifi}  ·  {battery}"),
+        device_status,
         23,
-        570,
+        DEVICE_STATUS_TEXT_WIDTH,
         [0x5a, 0x5a, 0x57],
     );
 }

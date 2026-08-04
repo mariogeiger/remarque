@@ -528,9 +528,15 @@ For a candidate scale gesture it also computes the mean radial distance
 `2 (r_current - r_initial)`. With two fingers, the scale is exactly the ratio
 of their current and initial separation. The recognizer compares the two
 finger-motion directions: a difference within 20 degrees of parallel is a pan;
-the other branch is a scale candidate. Configurable velocity and duration
-thresholds must be crossed before `0x00796c30` accepts the gesture, changes its
-state to 4, and emits the scale signals.
+the other branch is a scale candidate. The embedded `SceneViewGestures.qml`
+configures both `panMinVelocity` and `scaleMinVelocity` to
+`2.0 * DeviceScreenInfo.pixelsPerCm`. The constructor defaults both required
+durations to 80 ms. The corresponding velocity must remain above its threshold
+for that duration before `0x00796c30` accepts a scale gesture, changes its state
+to 4, and emits the scale signals. Acceptance retains only the latest touch
+frame, so delayed activation does not replay the pre-acceptance scale as a
+jump. Native Xochitl therefore has no fixed pinch-distance threshold: the
+perceived barrier is velocity plus time and direction classification.
 
 `SceneTileManager::zoomOnPoint(viewPoint, factor)` is dispatched through the
 Qt metacall at `0x007f3770` and implemented by `0x00dbaf00`. Let `q` be the
@@ -553,8 +559,17 @@ Parallel two-finger motion takes the pan branch. Its transform setter at
 `0x00dbb060` subtracts the view displacement divided by the active scale from
 the scene focal point. Combining scale and pan therefore maps the scene point
 under the previous touch centroid to the current centroid. During an active
-gesture, intermediate frames can use the fastest non-complete monochrome
-update; the slower complete color update is only needed once the gesture ends.
+gesture, `ScreenDriver.gestureMode` selects the animation screen mode. Accepted
+transform changes invalidate tiles and emit `transformChanged`; the scene-view
+pipeline repaints dirty regions rather than requesting the whole screen.
+
+`endDragAndZoom()` does not request an unconditional repaint or complete
+refresh. It cancels obsolete tile jobs, requests only missing tiles, and clears
+the gesture state. Leaving animation mode hides the scrollbars. A gesture whose
+clamped transform never changes therefore creates neither transform damage nor
+missing-tile work in this layer. Fast intermediate updates still need a final
+quality update over their accumulated dirty region, even when the last rendered
+pixels already equal the final image.
 
 ## Controlled drawing validation
 

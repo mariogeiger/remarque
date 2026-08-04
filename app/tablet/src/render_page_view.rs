@@ -3,9 +3,17 @@ use crate::render_fineliner::{
     FinelinerRasterPoint, nonzero_coverage_rectangle, raster_width_from_stored_quarters,
 };
 use crate::stroke::StrokePoint;
+#[cfg(test)]
+use crate::view_transform::midpoint;
 use crate::view_transform::{Point, Size, ViewTransform};
 
-const OUTSIDE_PAGE_BGRA: [u8; 4] = [0xe1, 0xe4, 0xe5, 0xff];
+pub(crate) const OUTSIDE_PAGE_RGB: [u8; 3] = [0xe5, 0xe4, 0xe1];
+const OUTSIDE_PAGE_BGRA: [u8; 4] = [
+    OUTSIDE_PAGE_RGB[2],
+    OUTSIDE_PAGE_RGB[1],
+    OUTSIDE_PAGE_RGB[0],
+    0xff,
+];
 
 pub(crate) fn identity_transform(width: usize, height: usize) -> ViewTransform {
     ViewTransform {
@@ -15,20 +23,6 @@ pub(crate) fn identity_transform(width: usize, height: usize) -> ViewTransform {
         },
         scale: 1.0,
     }
-}
-
-pub(crate) fn midpoint(points: [Point; 2]) -> Point {
-    Point {
-        x: (points[0].x + points[1].x) * 0.5,
-        y: (points[0].y + points[1].y) * 0.5,
-    }
-}
-
-pub(crate) fn rectangle_contains_point(rectangle: PixelRectangle, point: Point) -> bool {
-    point.x >= rectangle.x as f64
-        && point.y >= rectangle.y as f64
-        && point.x < (rectangle.x + rectangle.width) as f64
-        && point.y < (rectangle.y + rectangle.height) as f64
 }
 
 pub(crate) fn transform_background_nearest_neighbor(
@@ -230,15 +224,6 @@ mod tests {
             midpoint([Point { x: 2.0, y: 4.0 }, Point { x: 8.0, y: 10.0 }]),
             Point { x: 5.0, y: 7.0 }
         );
-        assert!(rectangle_contains_point(
-            PixelRectangle {
-                x: 10,
-                y: 20,
-                width: 30,
-                height: 40,
-            },
-            Point { x: 39.0, y: 59.0 }
-        ));
         let point = transform_stroke_point(
             StrokePoint {
                 x: 50.0,

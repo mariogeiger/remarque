@@ -1,6 +1,7 @@
 pub mod bgra_image;
 pub mod color;
 pub mod erase_strokes;
+pub mod fast_mono_cleanup;
 pub mod fineliner;
 pub mod render_fineliner;
 pub mod stroke;

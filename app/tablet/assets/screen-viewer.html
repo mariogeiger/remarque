@@ -47,6 +47,9 @@
       const VERSION = 3;
       const FULL_FRAME = 1;
       const DELTA_FRAME = 2;
+      const VIEWER_REPLACED_CLOSE_CODE = 4000;
+      const VIEWER_SESSION = "__REMARQUE_VIEWER_SESSION__";
+      const VIEWER_GENERATION = __REMARQUE_VIEWER_GENERATION__;
       const canvas = document.querySelector("#screen");
       const context = canvas.getContext("2d", { alpha: false });
       const viewer = document.querySelector("#viewer");
@@ -139,10 +142,14 @@
       function connect() {
         clearTimeout(reconnectTimer);
         const scheme = location.protocol === "https:" ? "wss" : "ws";
-        socket = new WebSocket(`${scheme}://${location.host}/ws/3`);
+        socket = new WebSocket(
+          `${scheme}://${location.host}/ws/3?session=${VIEWER_SESSION}&viewer=${VIEWER_GENERATION}`,
+        );
         socket.binaryType = "arraybuffer";
         socket.addEventListener("message", paintMessage);
-        socket.addEventListener("close", () => { reconnectTimer = setTimeout(connect, 1200); });
+        socket.addEventListener("close", (event) => {
+          if (event.code !== VIEWER_REPLACED_CLOSE_CODE) reconnectTimer = setTimeout(connect, 1200);
+        });
         socket.addEventListener("error", () => socket.close());
       }
 

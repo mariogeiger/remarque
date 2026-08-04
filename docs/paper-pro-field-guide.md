@@ -131,10 +131,12 @@ followed by tightly packed BGRA pixels. The browser converts only those tiles to
 RGBA and updates the corresponding canvas regions. A complete frame is sent on
 connect or when a delta would exceed half a frame.
 
-Every display copy increments a generation counter. While one viewer is
-connected, the stream snapshots at most 10 times per second and only after that
-counter changes. The snapshot reads the same synchronized Quill buffer shown on
-the tablet, so idle streaming performs no framebuffer copies.
+Every display copy that changes at least one pixel increments a generation
+counter. The most recently loaded viewer page replaces its predecessor;
+automatic reconnects from an older page cannot take the stream back. The stream
+snapshots at most 10 times per second and only after the display generation
+changes. The snapshot reads the same synchronized Quill buffer shown on the
+tablet, so idle streaming performs no framebuffer copies.
 
 ## Input devices
 

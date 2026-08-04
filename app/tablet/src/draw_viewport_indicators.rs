@@ -1,35 +1,34 @@
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
 use crate::render_fineliner::{FinelinerRasterPoint, render_fineliner_raster_points};
-use crate::view_transform::{Point, Size, ViewTransform, viewport_indicator};
+use crate::view_transform::{Bounds, Point, Size, ViewTransform, viewport_indicator};
 
 const MARGIN: f64 = 32.0;
 const EDGE_INSET: f32 = 24.0;
 const WIDTH_QUARTER_PIXELS: u16 = 6 * 4;
 
-pub(crate) fn viewport_indicators_visible_at_scale(scale: f64) -> bool {
-    scale > 1.0
-}
-
 pub(crate) fn draw_viewport_indicators(
     image: &mut BgraImage,
     transform: ViewTransform,
-    viewport: Size,
-    scene: Size,
+    view_size: Size,
+    visible_view: Bounds,
+    page: Bounds,
 ) {
-    let [horizontal, vertical] = viewport_indicators(transform, viewport, scene);
-    let track_width = viewport.width - MARGIN * 2.0;
-    let track_height = viewport.height - MARGIN * 2.0;
+    let [horizontal, vertical] = viewport_indicators(transform, view_size, visible_view, page);
+    let track_width = visible_view.size.width - MARGIN * 2.0;
+    let track_height = visible_view.size.height - MARGIN * 2.0;
     if let Some(indicator) = horizontal {
         draw_position_indicator(
             image,
             Point {
-                x: MARGIN + track_width * indicator.start,
-                y: viewport.height - f64::from(EDGE_INSET),
+                x: visible_view.origin.x + MARGIN + track_width * indicator.start,
+                y: visible_view.origin.y + visible_view.size.height - f64::from(EDGE_INSET),
             },
             Point {
-                x: MARGIN + track_width * (indicator.start + indicator.length),
-                y: viewport.height - f64::from(EDGE_INSET),
+                x: visible_view.origin.x
+                    + MARGIN
+                    + track_width * (indicator.start + indicator.length),
+                y: visible_view.origin.y + visible_view.size.height - f64::from(EDGE_INSET),
             },
         );
     }
@@ -37,12 +36,14 @@ pub(crate) fn draw_viewport_indicators(
         draw_position_indicator(
             image,
             Point {
-                x: viewport.width - f64::from(EDGE_INSET),
-                y: MARGIN + track_height * indicator.start,
+                x: visible_view.origin.x + visible_view.size.width - f64::from(EDGE_INSET),
+                y: visible_view.origin.y + MARGIN + track_height * indicator.start,
             },
             Point {
-                x: viewport.width - f64::from(EDGE_INSET),
-                y: MARGIN + track_height * (indicator.start + indicator.length),
+                x: visible_view.origin.x + visible_view.size.width - f64::from(EDGE_INSET),
+                y: visible_view.origin.y
+                    + MARGIN
+                    + track_height * (indicator.start + indicator.length),
             },
         );
     }
@@ -50,23 +51,23 @@ pub(crate) fn draw_viewport_indicators(
 
 fn viewport_indicators(
     transform: ViewTransform,
-    viewport: Size,
-    scene: Size,
+    view_size: Size,
+    visible_view: Bounds,
+    page: Bounds,
 ) -> [Option<crate::view_transform::FractionalInterval>; 2] {
+    let visible_page = transform.view_bounds_to_scene(visible_view, view_size);
     [
         viewport_indicator(
-            transform.focal_point.x,
-            transform.scale,
-            viewport.width,
-            0.0,
-            scene.width,
+            visible_page.origin.x,
+            visible_page.size.width,
+            page.origin.x,
+            page.size.width,
         ),
         viewport_indicator(
-            transform.focal_point.y,
-            transform.scale,
-            viewport.height,
-            0.0,
-            scene.height,
+            visible_page.origin.y,
+            visible_page.size.height,
+            page.origin.y,
+            page.size.height,
         ),
     ]
 }
@@ -88,29 +89,66 @@ mod tests {
     fn indicators_compare_the_viewport_against_the_scene() {
         let mut image = BgraImage::filled(1000, 800, [255, 255, 255]);
         let transform = ViewTransform {
-            focal_point: Point { x: 500.0, y: 500.0 },
+            focal_point: Point { x: 500.0, y: 400.0 },
             scale: 1.0,
         };
         let viewport = Size {
             width: 1000.0,
             height: 800.0,
         };
-        let scene = Size {
-            width: 1000.0,
-            height: 2000.0,
+        let visible_view = Bounds {
+            origin: Point { x: 0.0, y: 80.0 },
+            size: Size {
+                width: 1000.0,
+                height: 720.0,
+            },
         };
-        draw_viewport_indicators(&mut image, transform, viewport, scene);
-        let [horizontal, vertical] = viewport_indicators(transform, viewport, scene);
+        let page = Bounds {
+            origin: Point { x: 0.0, y: 80.0 },
+            size: Size {
+                width: 1000.0,
+                height: 1920.0,
+            },
+        };
+        draw_viewport_indicators(&mut image, transform, viewport, visible_view, page);
+        let [horizontal, vertical] = viewport_indicators(transform, viewport, visible_view, page);
         assert!(horizontal.is_none());
         let vertical = vertical.unwrap();
-        assert_eq!(vertical.length, 0.4);
-        assert_eq!(vertical.start, 0.05);
-        assert_ne!(image.pixel(976, 72), [255, 255, 255, 255]);
+        assert_eq!(vertical.length, 0.375);
+        assert_eq!(vertical.start, 0.0);
+        assert_ne!(image.pixel(976, 112), [255, 255, 255, 255]);
     }
 
     #[test]
-    fn indicators_are_visible_only_above_minimum_zoom() {
-        assert!(!viewport_indicators_visible_at_scale(1.0));
-        assert!(viewport_indicators_visible_at_scale(1.01));
+    fn vertical_indicator_is_visible_at_minimum_scale_for_a_tall_page() {
+        let viewport = Size {
+            width: 1000.0,
+            height: 800.0,
+        };
+        let visible_view = Bounds {
+            origin: Point { x: 0.0, y: 80.0 },
+            size: Size {
+                width: 1000.0,
+                height: 720.0,
+            },
+        };
+        let page = Bounds {
+            origin: Point { x: 0.0, y: 80.0 },
+            size: Size {
+                width: 1000.0,
+                height: 1000.0,
+            },
+        };
+        let [horizontal, vertical] = viewport_indicators(
+            ViewTransform {
+                focal_point: Point { x: 500.0, y: 400.0 },
+                scale: 1.0,
+            },
+            viewport,
+            visible_view,
+            page,
+        );
+        assert!(horizontal.is_none());
+        assert_eq!(vertical.unwrap().length, 0.72);
     }
 }
