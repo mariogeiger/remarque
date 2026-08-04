@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+repository=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+sysroot=${SDKTARGETSYSROOT:?source the firmware-matched SDK first}
+include=$sysroot/usr/include
+output=${EPAPER_SHOWCASE_OUTPUT:-$repository/.build/device_epaper_partial_update_showcase}
+
+$CXX -O2 -std=c++17 \
+    -I "$include" -I "$include/QtCore" -I "$include/QtGui" \
+    -I "$repository/app/tablet/paper-pro-epaper" \
+    "$repository/app/tablet/paper-pro-epaper/paper_pro_epaper.cpp" \
+    "$repository/reverse-engineering/display-response/device_epaper_partial_update_showcase.cpp" \
+    -lQt6Gui -lQt6Core -ldl \
+    -Wl,--export-dynamic-symbol=_ZN6QImageC1EPhiixNS_6FormatEPFvPvES2_ \
+    -Wl,--export-dynamic-symbol=_ZN6QImageC2EPhiixNS_6FormatEPFvPvES2_ \
+    -Wl,-rpath,/usr/lib/plugins/scenegraph \
+    -o "$output"
+
+printf '%s\n' "$output"

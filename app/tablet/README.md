@@ -21,7 +21,9 @@ and returns cleanly to Xochitl through the library's explicit Quit action.
   or right screen edge.
 - `draw_document_library`, `draw_text`, `draw_toolbar`, and
   `draw_viewport_indicators` own presentation only.
-- `display` copies BGRA rectangles and requests Quill waveform updates.
+- `display` copies BGRA rectangles and requests Paper Pro waveform updates.
+- `paper-pro-epaper` is the minimal C++ boundary for Qt and the firmware's
+  proprietary e-paper ABI; display policy remains in Rust.
 - `battery` reads the fuel-gauge percentage, charge, and charging state.
 - `system_suspend` bridges the application wake lock to the firmware's
   suspend-then-hibernate path and confirms the resulting kernel transition.
@@ -71,9 +73,11 @@ trusted local network or through a private network transport.
 
 ## Build
 
-The `takeover` feature links against the Paper Pro Quill, PDFium, and e-paper
-libraries and embeds a TrueType UI font. Set `REMARQUE_UI_FONT` when Noto Sans
-or DejaVu Sans is not installed on the build host.
+The `takeover` feature compiles the in-repository Paper Pro e-paper boundary,
+links against Qt and PDFium, and embeds a TrueType UI font. The boundary loads
+the firmware's `libqsgepaper.so` at runtime; that proprietary library is not a
+repository or build input. Set `REMARQUE_UI_FONT` when Noto Sans or DejaVu Sans
+is not installed on the build host.
 Use the firmware-matched SDK and `app/scripts/link-with-remarkable-sdk`; the
 host workspace tests exercise the portable modules without linking those
 libraries.

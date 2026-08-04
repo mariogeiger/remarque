@@ -15,11 +15,17 @@ camera presentation, and optical settling as separate observations.
 - `measure_pen_response.py` aligns a replayed pen contact with a dense optical
   grid and measures local input-to-visible-ink latency.
 - `write_manifest.py` hashes every preserved campaign artifact.
+- `device_epaper_timing_probe.cpp` exercises the exact in-tree production
+  e-paper boundary and records submission and vendor-queue timings.
+- `build-device-epaper-probe` cross-compiles that probe with the firmware SDK.
+- `device_epaper_partial_update_showcase.cpp` contrasts a sequence of 64×64
+  partial updates with one complete-screen color restore.
+- `build-device-epaper-showcase` cross-compiles that visual demonstration.
 - `regions/` contains the calibrated camera-space regions.
 - `experiments/` preserves immutable inputs, outputs, and conclusions from
   completed runs.
 
-The tablet-side `device_timing_probe` and `device_monotonic_server` belong to
+The historical `device_timing_probe` and `device_monotonic_server` remain in
 the Quill repository because they exercise its ABI directly.
 
 ## Clock model
@@ -71,8 +77,9 @@ sample window into panel latency.
 
 The validated setup is 1920×1080 at 60 frames per second, HDR disabled,
 1/120-second exposure, and ISO 500. The camera must remain fixed after region
-calibration. The 2026-08-04 calibration maps the center of Quill's centered
-rectangles to approximately `(1000, 575)` in the 1920×1080 camera image.
+calibration. The 2026-08-04 calibration maps the center of the tablet probes'
+centered rectangles to approximately `(1000, 575)` in the 1920×1080 camera
+image.
 
 On the Mac, build the camera application once and grant it camera access:
 

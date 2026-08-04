@@ -5,20 +5,36 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 
-unsafe extern "C" {
-    fn quill_init() -> i32;
-    fn quill_width() -> i32;
-    fn quill_height() -> i32;
-    fn quill_stride() -> i32;
-    fn quill_format() -> i32;
-    fn quill_buffer() -> *mut u8;
-    fn quill_swap_mono_fast(x: i32, y: i32, width: i32, height: i32) -> u64;
-    fn quill_swap_mono_quality(x: i32, y: i32, width: i32, height: i32) -> u64;
-    fn quill_swap_color_mode_three(x: i32, y: i32, width: i32, height: i32) -> u64;
-    fn quill_swap_color(x: i32, y: i32, width: i32, height: i32) -> u64;
-    fn quill_swap_color_full(x: i32, y: i32, width: i32, height: i32) -> u64;
-    fn quill_process_events();
+#[repr(C)]
+struct PaperProEpaperFramebuffer {
+    pixels: *mut u8,
+    width: i32,
+    height: i32,
+    stride: i32,
+    format: i32,
 }
+
+unsafe extern "C" {
+    fn paper_pro_epaper_open(framebuffer: *mut PaperProEpaperFramebuffer) -> i32;
+    fn paper_pro_epaper_submit_update(
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        content_type: i32,
+        screen_mode: i32,
+        update_flags: i32,
+    ) -> i32;
+    fn paper_pro_epaper_run_pending_events();
+}
+
+const MONOCHROME_CONTENT: i32 = 0;
+const COLOR_CONTENT: i32 = 1;
+const MODE_ZERO: i32 = 0;
+const MODE_THREE: i32 = 3;
+const MODE_FOUR: i32 = 4;
+const PARTIAL_UPDATE: i32 = 0;
+const COMPLETE_UPDATE: i32 = 1;
 
 pub type Rectangle = PixelRectangle;
 
@@ -29,7 +45,7 @@ pub struct DisplaySnapshot {
     pub generation: u64,
 }
 
-pub struct QuillDisplay {
+pub struct EpaperDisplay {
     pixels: NonNull<u8>,
     width: usize,
     height: usize,
@@ -39,29 +55,35 @@ pub struct QuillDisplay {
     fast_mono_cleanup: Mutex<FastMonoCleanup>,
 }
 
-impl QuillDisplay {
+impl EpaperDisplay {
     pub fn open() -> io::Result<Self> {
-        let result = unsafe { quill_init() };
+        let mut framebuffer = PaperProEpaperFramebuffer {
+            pixels: std::ptr::null_mut(),
+            width: 0,
+            height: 0,
+            stride: 0,
+            format: -1,
+        };
+        let result = unsafe { paper_pro_epaper_open(&mut framebuffer) };
         if result != 0 {
-            return Err(io::Error::other(format!("quill_init failed with {result}")));
+            return Err(io::Error::other(format!(
+                "Paper Pro e-paper initialization failed with {result}"
+            )));
         }
-        let width = usize::try_from(unsafe { quill_width() })
-            .map_err(|_| io::Error::other("invalid quill width"))?;
-        let height = usize::try_from(unsafe { quill_height() })
-            .map_err(|_| io::Error::other("invalid quill height"))?;
-        let stride = usize::try_from(unsafe { quill_stride() })
-            .map_err(|_| io::Error::other("invalid quill stride"))?;
-        let pixels = NonNull::new(unsafe { quill_buffer() })
-            .ok_or_else(|| io::Error::other("quill returned a null framebuffer"))?;
+        let width = usize::try_from(framebuffer.width)
+            .map_err(|_| io::Error::other("invalid e-paper framebuffer width"))?;
+        let height = usize::try_from(framebuffer.height)
+            .map_err(|_| io::Error::other("invalid e-paper framebuffer height"))?;
+        let stride = usize::try_from(framebuffer.stride)
+            .map_err(|_| io::Error::other("invalid e-paper framebuffer stride"))?;
+        let pixels = NonNull::new(framebuffer.pixels)
+            .ok_or_else(|| io::Error::other("e-paper framebuffer is null"))?;
         if width == 0 || height == 0 || stride < width * 4 {
-            return Err(io::Error::other("invalid quill framebuffer geometry"));
+            return Err(io::Error::other("invalid e-paper framebuffer geometry"));
         }
         eprintln!(
             "display={}x{} stride={} format={}",
-            width,
-            height,
-            stride,
-            unsafe { quill_format() }
+            width, height, stride, framebuffer.format
         );
         Ok(Self {
             pixels,
@@ -148,35 +170,49 @@ impl QuillDisplay {
         }
     }
 
-    pub fn show_mono_fast(&self, rectangle: Rectangle) {
+    fn submit_update(
+        &self,
+        rectangle: Rectangle,
+        content_type: i32,
+        screen_mode: i32,
+        update_flags: i32,
+    ) {
+        let right = rectangle.x.saturating_add(rectangle.width).min(self.width);
+        let bottom = rectangle
+            .y
+            .saturating_add(rectangle.height)
+            .min(self.height);
+        let left = rectangle.x.min(right);
+        let top = rectangle.y.min(bottom);
+        if left == right || top == bottom {
+            return;
+        }
+        let submitted = unsafe {
+            paper_pro_epaper_submit_update(
+                i32::try_from(left).expect("display width fits i32"),
+                i32::try_from(top).expect("display height fits i32"),
+                i32::try_from(right - left).expect("display width fits i32"),
+                i32::try_from(bottom - top).expect("display height fits i32"),
+                content_type,
+                screen_mode,
+                update_flags,
+            )
+        };
+        assert_eq!(submitted, 1, "Paper Pro e-paper update was rejected");
+        unsafe {
+            paper_pro_epaper_run_pending_events();
+        }
+    }
+
+    pub fn submit_mode_zero_monochrome(&self, rectangle: Rectangle) {
         self.fast_mono_cleanup
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .include_update(rectangle);
-        unsafe {
-            quill_swap_mono_fast(
-                rectangle.x as i32,
-                rectangle.y as i32,
-                rectangle.width as i32,
-                rectangle.height as i32,
-            );
-            quill_process_events();
-        }
+        self.submit_update(rectangle, MONOCHROME_CONTENT, MODE_ZERO, PARTIAL_UPDATE);
     }
 
-    pub fn show_mono_quality(&self, rectangle: Rectangle) {
-        unsafe {
-            quill_swap_mono_quality(
-                rectangle.x as i32,
-                rectangle.y as i32,
-                rectangle.width as i32,
-                rectangle.height as i32,
-            );
-            quill_process_events();
-        }
-    }
-
-    pub fn show_color(&self, changed: Option<Rectangle>) {
+    pub fn submit_mode_four_color(&self, changed: Option<Rectangle>) {
         let rectangle = self
             .fast_mono_cleanup
             .lock()
@@ -185,18 +221,10 @@ impl QuillDisplay {
         let Some(rectangle) = rectangle else {
             return;
         };
-        unsafe {
-            quill_swap_color(
-                rectangle.x as i32,
-                rectangle.y as i32,
-                rectangle.width as i32,
-                rectangle.height as i32,
-            );
-            quill_process_events();
-        }
+        self.submit_update(rectangle, COLOR_CONTENT, MODE_FOUR, PARTIAL_UPDATE);
     }
 
-    pub fn show_color_mode_three(&self, changed: Option<Rectangle>) {
+    pub fn submit_mode_three_color(&self, changed: Option<Rectangle>) {
         let rectangle = self
             .fast_mono_cleanup
             .lock()
@@ -205,28 +233,27 @@ impl QuillDisplay {
         let Some(rectangle) = rectangle else {
             return;
         };
-        unsafe {
-            quill_swap_color_mode_three(
-                rectangle.x as i32,
-                rectangle.y as i32,
-                rectangle.width as i32,
-                rectangle.height as i32,
-            );
-            quill_process_events();
-        }
+        self.submit_update(rectangle, COLOR_CONTENT, MODE_THREE, PARTIAL_UPDATE);
     }
 
-    pub fn show_color_full(&self) {
+    pub fn submit_mode_four_color_full(&self) {
         self.fast_mono_cleanup
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
-        unsafe {
-            quill_swap_color_full(0, 0, self.width as i32, self.height as i32);
-            quill_process_events();
-        }
+        self.submit_update(
+            Rectangle {
+                x: 0,
+                y: 0,
+                width: self.width,
+                height: self.height,
+            },
+            COLOR_CONTENT,
+            MODE_FOUR,
+            COMPLETE_UPDATE,
+        );
     }
 }
 
-unsafe impl Send for QuillDisplay {}
-unsafe impl Sync for QuillDisplay {}
+unsafe impl Send for EpaperDisplay {}
+unsafe impl Sync for EpaperDisplay {}

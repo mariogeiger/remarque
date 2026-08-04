@@ -18,7 +18,8 @@ its own interaction model and capabilities.
   hashed binary, controlled capture, or explicit decompilation path.
 - **Portable behavior, narrow adapters.** Drawing and geometry live in
   `app/core`; document exchange and PDF export live in `app/document`; evdev,
-  PDFium, Quill, and systemd remain behind application adapters.
+  PDFium, the Paper Pro e-paper ABI, and systemd remain behind application
+  adapters.
 - **One source of truth per concept.** Colors, strokes, raster images, and view
   transforms are shared data, not properties of one brush or UI.
 - **Differential confidence.** Recorded native fixtures test the same operations

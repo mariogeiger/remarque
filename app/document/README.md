@@ -2,7 +2,7 @@
 
 This crate owns the device-independent document boundary: durable requests
 between the Telegram service and the graphical process, plus flattened PDF
-export. It does not know Telegram, systemd, Quill, or PDFium.
+export. It does not know Telegram, systemd, e-paper hardware, or PDFium.
 
 Incoming PDFs remain immutable. The tablet process renders their pages as
 optional backgrounds and stores Remarque strokes separately. Export flattens

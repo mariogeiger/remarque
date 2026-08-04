@@ -30,7 +30,7 @@ Product intent                    Native behavior worth preserving
 
 | Area | Owns | Must not own |
 | --- | --- | --- |
-| `app/core` | Colors, strokes, geometry, raster images, rendering, erasure, transforms | evdev, DRM, Quill, systemd, application UI |
+| `app/core` | Colors, strokes, geometry, raster images, rendering, erasure, transforms | evdev, DRM, e-paper hardware, systemd, application UI |
 | `app/document` | Durable library protocol, content IDs, flattened PDF writing | Telegram, PDF rendering, UI, hardware |
 | `app/tablet` | Hardware adapters, PDFium rendering, notebook interaction, presentation, in-process screen streaming, UI takeover | Decompiled source or capture logic |
 | `app/telegram-bot` | One-chat Telegram transport, private credentials, service activation | Drawing, rendering, graphical UI |

@@ -1,4 +1,4 @@
-use crate::display::QuillDisplay;
+use crate::display::EpaperDisplay;
 use crate::screen_stream_protocol::{encode_changed_pixels, encode_full_frame};
 use axum::Router;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
@@ -20,7 +20,7 @@ const VIEWER_REPLACED_CLOSE_CODE: u16 = 4000;
 
 #[derive(Clone)]
 struct ScreenStreamState {
-    display: Arc<QuillDisplay>,
+    display: Arc<EpaperDisplay>,
     connection_generation: watch::Sender<u64>,
     viewer_session: u64,
     next_viewer_generation: Arc<AtomicU64>,
@@ -33,7 +33,7 @@ struct ViewerQuery {
     viewer: u64,
 }
 
-pub fn start_screen_stream(display: Arc<QuillDisplay>) -> io::Result<thread::JoinHandle<()>> {
+pub fn start_screen_stream(display: Arc<EpaperDisplay>) -> io::Result<thread::JoinHandle<()>> {
     let listener = std::net::TcpListener::bind(LISTEN_ADDRESS)?;
     listener.set_nonblocking(true)?;
     thread::Builder::new()

@@ -1,5 +1,5 @@
 use remarque_document::DocumentExchange;
-use remarque_tablet::display::QuillDisplay;
+use remarque_tablet::display::EpaperDisplay;
 use remarque_tablet::document_requests::apply_all_pending_document_requests;
 use remarque_tablet::input::{PenDevice, PowerButtonDevice, TouchDevice};
 use remarque_tablet::notebook::Notebook;
@@ -92,7 +92,7 @@ fn main() -> io::Result<()> {
     signal_hook::flag::register(SIGTERM, Arc::clone(&stop))?;
     signal_hook::flag::register(SIGINT, Arc::clone(&stop))?;
 
-    let display = Arc::new(QuillDisplay::open()?);
+    let display = Arc::new(EpaperDisplay::open()?);
     let exchange_directory = std::env::var_os("REMARQUE_EXCHANGE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/home/root/remarque/data/exchange"));

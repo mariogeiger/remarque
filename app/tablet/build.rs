@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
+const QIMAGE_EXTERNAL_C1: &str = "_ZN6QImageC1EPhiixNS_6FormatEPFvPvES2_";
+const QIMAGE_EXTERNAL_C2: &str = "_ZN6QImageC2EPhiixNS_6FormatEPFvPvES2_";
+
 fn main() {
     if env::var_os("CARGO_FEATURE_TAKEOVER").is_none() {
         return;
@@ -23,31 +26,41 @@ fn main() {
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("ui-font.ttf");
     fs::copy(font, output).expect("copy Remarque UI font");
 
-    let repository = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_owned();
-    let quill = env::var_os("REMARQUE_QUILL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repository.join(".build/quill"));
+    let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let sysroot = PathBuf::from(
+        env::var_os("SDKTARGETSYSROOT")
+            .expect("source the firmware-matched SDK before building takeover"),
+    );
+    let include = sysroot.join("usr/include");
+    let epaper = manifest.join("paper-pro-epaper");
+    println!("cargo:rerun-if-env-changed=SDKTARGETSYSROOT");
     println!(
-        "cargo:rustc-link-search=native={}",
-        quill.join("build").display()
+        "cargo:rerun-if-changed={}",
+        epaper.join("paper_pro_epaper.cpp").display()
     );
     println!(
-        "cargo:rustc-link-search=native={}",
-        quill.join("vendor").display()
+        "cargo:rerun-if-changed={}",
+        epaper.join("paper_pro_epaper.h").display()
     );
-    println!("cargo:rustc-link-lib=dylib=quill");
-    println!("cargo:rustc-link-lib=dylib=qsgepaper");
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file(epaper.join("paper_pro_epaper.cpp"))
+        .include(&epaper)
+        .include(&include)
+        .include(include.join("QtCore"))
+        .include(include.join("QtGui"))
+        .compile("paper_pro_epaper");
+
+    println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol={QIMAGE_EXTERNAL_C1}");
+    println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol={QIMAGE_EXTERNAL_C2}");
+    println!("cargo:rustc-link-lib=dylib=Qt6Gui");
+    println!("cargo:rustc-link-lib=dylib=Qt6Core");
+    println!("cargo:rustc-link-lib=dylib=dl");
     println!("cargo:rustc-link-lib=dylib=pdfium");
     println!("cargo:rustc-link-arg=-Wl,-rpath,/home/root/remarque/lib:/usr/lib/plugins/scenegraph");
-    if let Some(sysroot) = env::var_os("SDKTARGETSYSROOT") {
-        println!(
-            "cargo:rustc-link-arg=-Wl,-rpath-link,{}/usr/lib",
-            PathBuf::from(sysroot).display()
-        );
-    }
+    println!(
+        "cargo:rustc-link-arg=-Wl,-rpath-link,{}/usr/lib",
+        sysroot.display()
+    );
 }

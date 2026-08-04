@@ -2,7 +2,7 @@ use crate::battery::read_battery;
 use crate::bgra_image::BgraImage;
 use crate::color::Color;
 use crate::device_status::format_device_status;
-use crate::display::{QuillDisplay, Rectangle};
+use crate::display::{EpaperDisplay, Rectangle};
 use crate::document_library::{DocumentLibrary, restore_document_library, save_document_library};
 use crate::draw_document_library::{
     DEVICE_STATUS_RECTANGLE, DocumentLibraryAction, document_library_action_at, draw_device_status,
@@ -71,7 +71,7 @@ struct OpenDocument {
 }
 
 pub struct Notebook {
-    display: Arc<QuillDisplay>,
+    display: Arc<EpaperDisplay>,
     image: BgraImage,
     open_document: Option<OpenDocument>,
     library: DocumentLibrary,
@@ -93,7 +93,7 @@ pub struct Notebook {
 }
 
 impl Notebook {
-    pub fn new(display: Arc<QuillDisplay>, state_path: PathBuf) -> io::Result<Self> {
+    pub fn new(display: Arc<EpaperDisplay>, state_path: PathBuf) -> io::Result<Self> {
         let width = display.width();
         let height = display.height();
         let image = BgraImage::filled(width, height, [0xff, 0xff, 0xff]);
@@ -150,14 +150,14 @@ impl Notebook {
         draw_sleep_screen(&mut self.image);
         let full = Rectangle::full(self.image.width(), self.image.height());
         self.display.copy_changed_from(&self.image, full)?;
-        self.display.show_color_full();
+        self.display.submit_mode_four_color_full();
         Ok(())
     }
 
     pub fn redraw_active_view_with_full_refresh(&mut self) -> io::Result<()> {
         if self.open_document.is_some() {
             self.redraw_notebook()?;
-            self.display.show_color_full();
+            self.display.submit_mode_four_color_full();
             Ok(())
         } else {
             self.redraw_document_library()
@@ -446,7 +446,7 @@ impl Notebook {
 
     fn submit_all_pending_pen_pixels(&mut self) {
         if let Some(changed) = self.pending_pen_pixels.take() {
-            self.display.show_mono_fast(changed);
+            self.display.submit_mode_zero_monochrome(changed);
             self.last_pen_render = Instant::now();
         }
     }
@@ -566,7 +566,7 @@ impl Notebook {
             && self.last_pinch_render.elapsed() >= PINCH_RENDER_INTERVAL
         {
             if let Some(changed) = self.redraw_notebook()? {
-                self.display.show_mono_fast(changed);
+                self.display.submit_mode_zero_monochrome(changed);
             }
             self.last_pinch_render = Instant::now();
         }
@@ -579,7 +579,7 @@ impl Notebook {
         } else {
             None
         };
-        self.display.show_color(changed);
+        self.display.submit_mode_four_color(changed);
         Ok(())
     }
 
@@ -613,7 +613,7 @@ impl Notebook {
                     }
                     let changed = self.display.copy_changed_from(&self.image, dirty)?;
                     let changed = self.take_pending_pen_pixels_with(changed);
-                    self.display.show_color(changed);
+                    self.display.submit_mode_four_color(changed);
                 }
             }
             Some(PenContact::Eraser { centerline, .. }) => {
@@ -643,7 +643,7 @@ impl Notebook {
                     self.save_state()?;
                     let changed = self.redraw_notebook()?;
                     let changed = self.take_pending_pen_pixels_with(changed);
-                    self.display.show_color(changed);
+                    self.display.submit_mode_four_color(changed);
                 }
             }
             Some(PenContact::OutsidePage | PenContact::Toolbar | PenContact::Library) | None => {}
@@ -745,7 +745,7 @@ impl Notebook {
         self.transform = identity_transform(self.width(), self.height());
         self.save_state()?;
         self.redraw_notebook()?;
-        self.display.show_color_full();
+        self.display.submit_mode_four_color_full();
         Ok(())
     }
 
@@ -773,7 +773,7 @@ impl Notebook {
         );
         let full = Rectangle::full(self.image.width(), self.image.height());
         self.display.copy_changed_from(&self.image, full)?;
-        self.display.show_color_full();
+        self.display.submit_mode_four_color_full();
         Ok(())
     }
 
@@ -782,7 +782,7 @@ impl Notebook {
         let changed = self
             .display
             .copy_changed_from(&self.image, DEVICE_STATUS_RECTANGLE)?;
-        self.display.show_color(changed);
+        self.display.submit_mode_four_color(changed);
         Ok(())
     }
 
@@ -817,7 +817,7 @@ impl Notebook {
             height: TOOLBAR_HEIGHT,
         };
         let changed = self.display.copy_changed_from(&self.image, toolbar)?;
-        self.display.show_color_mode_three(changed);
+        self.display.submit_mode_three_color(changed);
         Ok(())
     }
 

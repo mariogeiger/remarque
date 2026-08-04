@@ -46,6 +46,13 @@ All notable user-visible changes to this project are documented here.
 
 ### Engineering
 
+- The Paper Pro framebuffer boundary now builds from its small, attributed C++
+  source inside Remarque. The application no longer depends on an external
+  Quill checkout or `libquill.so` at build or runtime.
+- A synchronized optical campaign confirms that the integrated C++ boundary
+  reproduces Quill's mode-0, mode-3, and mode-4 onset within measurement
+  resolution. It also reproduces the firmware controller's periodic slower
+  cleanup cycle at the same update positions.
 - A synchronized 60 Hz optical bench now preserves device requests, camera
   luminance, clock alignment, native pen replay, derived measurements, and
   cryptographic manifests. The measured native pen median is 71 ms from input

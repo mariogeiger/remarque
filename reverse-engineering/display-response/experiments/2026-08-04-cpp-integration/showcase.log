@@ -1,0 +1,13 @@
+...panel tft: C0F
+...panel fpl: AAB0BV
+Loading waveforms from: /usr/share/remarkable/GAL3_AAB0BV_ID3511_AC118TC1F2_AD1004-LHA_TC.eink
+pmic: setting rails to 6.0, 12.0, 24.0, -6.0, -12.0, -24.0
+pmic: setting PDD duration to 30000ms
+temperature_hwmon: found temperature path: /sys/class/hwmon/hwmon8/temp1_input
+framebuffer=1620x2160
+partial_area_fraction=0.001170553
+libquill_loaded=0
+shutdown: waiting for updates to complete...
+shutdown: waiting for display to finish...
+shutdown: threads stopped
+shutdown: shutting down...

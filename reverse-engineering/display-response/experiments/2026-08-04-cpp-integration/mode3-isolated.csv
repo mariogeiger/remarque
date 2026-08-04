@@ -1,0 +1,23 @@
+...panel tft: C0F
+...panel fpl: AAB0BV
+Loading waveforms from: /usr/share/remarkable/GAL3_AAB0BV_ID3511_AC118TC1F2_AD1004-LHA_TC.eink
+pmic: setting rails to 6.0, 12.0, 24.0, -6.0, -12.0, -24.0
+pmic: setting PDD duration to 30000ms
+temperature_hwmon: found temperature path: /sys/class/hwmon/hwmon8/temp1_input
+update,direction,size,repetition,before_submit_us,after_submit_us,after_drain_us,accepted,drained
+color3-black,darken,64x64,0,8656186435,8656200545,8656821402,1,1
+color3-paper,lighten,64x64,0,8657321702,8657322788,8657927698,1,1
+color3-black,darken,64x64,1,8658427929,8658429002,8659033917,1,1
+color3-paper,lighten,64x64,1,8659534146,8659535066,8660140026,1,1
+color3-black,darken,256x256,0,8660641183,8660645290,8661260269,1,1
+color3-paper,lighten,256x256,0,8661761494,8661767163,8662376038,1,1
+color3-black,darken,256x256,1,8662877200,8662881441,8663493984,1,1
+color3-paper,lighten,256x256,1,8663995160,8664000952,8664616126,1,1
+color3-black,darken,512x512,0,8665120437,8665135466,8665741714,1,1
+color3-paper,lighten,512x512,0,8666245910,8666266129,8666876123,1,1
+color3-black,darken,512x512,1,8667380449,8667395474,8668001195,1,1
+color3-paper,lighten,512x512,1,8668505430,8668525357,8669130919,1,1
+shutdown: waiting for updates to complete...
+shutdown: waiting for display to finish...
+shutdown: threads stopped
+shutdown: shutting down...

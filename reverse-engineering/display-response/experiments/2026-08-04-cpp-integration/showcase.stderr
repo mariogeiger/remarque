@@ -1,0 +1,2 @@
+QThread::setPriority: Cannot set priority, thread is not running
+remarque epaper: framebuffer 1620x2160 stride=6528 format=4

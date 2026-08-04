@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "experiment": "2026-08-04-cpp-integration",
+  "firmware": "3.27.3.0",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3939,
+      "sha256": "e7d4790ef18997e237607ab11c6f460714a89fd82a9c325d59197e6101ad8180"
+    },
+    {
+      "path": "calibration-before.jpg",
+      "bytes": 719425,
+      "sha256": "64a89b648460c667c340d2ecc2d4d32cc619f2e8999105ef72cb335e8f9430d8"
+    },
+    {
+      "path": "calibration-black.jpg",
+      "bytes": 694839,
+      "sha256": "c4c5cfe10c080ea3f05e3ee3771ad6cb0dfa482c9ea51049ffe05a1938c595b8"
+    },
+    {
+      "path": "camera.csv.zst",
+      "bytes": 40804,
+      "sha256": "dd2458737b5393fbc8d40fd873a95d08d4bbfbb0f75d07c2435c499ef8e21b03"
+    },
+    {
+      "path": "clock-after.csv",
+      "bytes": 10643,
+      "sha256": "34fe909dbf3bcfc9ea94a097c99dfe23bd2782f16e9320e97ab29764773882e8"
+    },
+    {
+      "path": "clock-before.csv",
+      "bytes": 10684,
+      "sha256": "26e28fc38cd6734663571a845d54420fb52dcca5c244e974341946e2ae12c03e"
+    },
+    {
+      "path": "device.csv",
+      "bytes": 2979,
+      "sha256": "a83b53d69d1b78a20eff7f3b5923b4bdf744140a3b91dd76c9024708fd0c8ed9"
+    },
+    {
+      "path": "device.stderr",
+      "bytes": 125,
+      "sha256": "838b85f5eef58bec1a1ba7a6cb574d49d69ec179a60424573dae789da356f8ee"
+    },
+    {
+      "path": "mode3-isolated.csv",
+      "bytes": 1351,
+      "sha256": "5aed101d0ef1c491b8441679888e48bc191c1901cb2a537528d34e31a95a3673"
+    },
+    {
+      "path": "mode3-isolated.stderr",
+      "bytes": 125,
+      "sha256": "838b85f5eef58bec1a1ba7a6cb574d49d69ec179a60424573dae789da356f8ee"
+    },
+    {
+      "path": "partial-vs-global-showcase.mp4",
+      "bytes": 474252,
+      "sha256": "65e815878e4045ccb2caa1df3988435bdebc6173bff29f4b757cf203c7a955eb"
+    },
+    {
+      "path": "region.csv",
+      "bytes": 42,
+      "sha256": "883583ccdc24d9564a036bca95c763d36b5c29a8b9e34212d31d607bafd0ae5c"
+    },
+    {
+      "path": "response.csv",
+      "bytes": 8741,
+      "sha256": "61633b452c85d070408a7d6e2a874dc9a4bf0ba0aea8d52af7ddade3680fdb42"
+    },
+    {
+      "path": "showcase.log",
+      "bytes": 525,
+      "sha256": "1780dfc34b62e5d2d2a41c5abc703474ac1091329497377627ec2352ef933520"
+    },
+    {
+      "path": "showcase.stderr",
+      "bytes": 125,
+      "sha256": "838b85f5eef58bec1a1ba7a6cb574d49d69ec179a60424573dae789da356f8ee"
+    },
+    {
+      "path": "summary.csv",
+      "bytes": 4274,
+      "sha256": "74f4a67c0205682f01744a15917b0fb5ddf55f465db62d024536766b3257465d"
+    }
+  ]
+}
