@@ -129,8 +129,12 @@ impl FinelinerRasterizer {
         if self.rendered_end_cap {
             return;
         }
-        if let (Some(edges), Some(end)) = (self.previous_edges, self.previous_point) {
-            render_round_end_cap(image, edges, end, self.color);
+        if let Some(end) = self.previous_point {
+            if let Some(edges) = self.previous_edges {
+                render_round_end_cap(image, edges, end, self.color);
+            } else {
+                render_antialiased_disc(image, end, self.color);
+            }
             self.rendered_end_cap = true;
         }
     }
@@ -234,6 +238,20 @@ fn render_round_start_cap(
         );
         positive = next_positive;
         negative = next_negative;
+    }
+}
+
+fn render_antialiased_disc(image: &mut BgraImage, center: FinelinerRasterPoint, bgra: [u8; 4]) {
+    let radius = center.width * 0.5;
+    if !radius.is_finite() || radius <= 0.0 {
+        return;
+    }
+    let rectangle = nonzero_coverage_rectangle(center, center, image.width(), image.height());
+    for row in rectangle.y..rectangle.y + rectangle.height {
+        for column in rectangle.x..rectangle.x + rectangle.width {
+            let distance = (column as f32 + 0.5 - center.x).hypot(row as f32 + 0.5 - center.y);
+            image.blend_bgra_coverage(column, row, bgra, antialiased_coverage(distance, radius));
+        }
     }
 }
 
@@ -445,17 +463,23 @@ fn rasterize_coverage_triangle(
             let half_width = left.half_width + (right.half_width - left.half_width) * amount;
             let signed_distance =
                 left.signed_distance + (right.signed_distance - left.signed_distance) * amount;
-            let distance = signed_distance.abs();
-            let inner = half_width - 0.75;
-            let coverage = if distance < inner {
-                255
-            } else if distance <= half_width {
-                ((1.0 - (distance - inner) / (half_width - inner)) * 255.0) as u8
-            } else {
-                0
-            };
+            let coverage = antialiased_coverage(signed_distance.abs(), half_width);
             image.blend_bgra_coverage(column as usize, row as usize, bgra, coverage);
         }
+    }
+}
+
+fn antialiased_coverage(distance: f32, half_width: f32) -> u8 {
+    if half_width <= 0.0 {
+        return 0;
+    }
+    let inner = half_width - 0.75;
+    if distance < inner {
+        255
+    } else if distance <= half_width {
+        ((1.0 - (distance - inner) / (half_width - inner)) * 255.0) as u8
+    } else {
+        0
     }
 }
 
@@ -514,6 +538,15 @@ mod tests {
             Color::Black,
         );
         assert_eq!(image.pixel(10, 9), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn one_point_renders_an_antialiased_disc() {
+        let mut image = BgraImage::filled(20, 20, [255, 255, 255]);
+        render_fineliner(&mut image, &[point(10.5, 10.5, 255)], Color::Black);
+        assert_eq!(image.pixel(10, 10), [0, 0, 0, 255]);
+        assert_ne!(image.pixel(11, 10), [255, 255, 255, 255]);
+        assert_eq!(image.pixel(12, 10), [255, 255, 255, 255]);
     }
 
     #[test]

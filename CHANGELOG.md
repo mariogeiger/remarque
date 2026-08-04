@@ -44,6 +44,11 @@ All notable user-visible changes to this project are documented here.
 - Toolbar interactions use the measured fast color waveform, pitch-dark ink,
   and a thin selection mark instead of refreshing a large pale fill.
 
+### Fixed
+
+- A stationary stylus tap creates and persists an antialiased point at the
+  selected fineliner width.
+
 ### Engineering
 
 - The Paper Pro framebuffer boundary now builds from its small, attributed C++
