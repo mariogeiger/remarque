@@ -35,6 +35,24 @@ All notable user-visible changes to this project are documented here.
 - Pinch and eraser completion use partial color cleanup instead of a complete
   screen refresh, and application startup no longer repeats its initial full
   refresh.
+- The toolbar page indicator uses more space and the largest text size that
+  fits the current page count.
+- Pinch transforms are coalesced to one rendered frame after each input-queue
+  drain, while a clamped transform that changes no pixels schedules no redraw.
+- Pen geometry retains every input sample while coalescing each drained input
+  batch into exact dirty rectangles submitted at most once per display frame.
+- Toolbar interactions use the measured fast color waveform, pitch-dark ink,
+  and a thin selection mark instead of refreshing a large pale fill.
+
+### Engineering
+
+- A synchronized 60 Hz optical bench now preserves device requests, camera
+  luminance, clock alignment, native pen replay, derived measurements, and
+  cryptographic manifests. The measured native pen median is 71 ms from input
+  to visible ink on the test trace.
+- Replaying the same trace through Remarque measured 110 ms before pen-display
+  pacing and 100 ms after it; the remaining 29 ms native gap is preserved as a
+  measured target rather than hidden by queue timing.
 
 ## 0.8.0 - 2026-08-04
 

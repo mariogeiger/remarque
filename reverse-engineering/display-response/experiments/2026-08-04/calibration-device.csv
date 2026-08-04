@@ -1,0 +1,38 @@
+...panel tft: C0F
+...panel fpl: AAB0BV
+Loading waveforms from: /usr/share/remarkable/GAL3_AAB0BV_ID3511_AC118TC1F2_AD1004-LHA_TC.eink
+pmic: setting rails to 6.0, 12.0, 24.0, -6.0, -12.0, -24.0
+pmic: setting PDD duration to 30000ms
+temperature_hwmon: found temperature path: /sys/class/hwmon/hwmon9/temp1_input
+update,direction,size,repetition,before_submit_us,after_submit_us,after_drain_us,accepted,drained
+marker-black,marker,768x768,0,86217552278,86217572405,86217928470,1,1
+marker-paper,marker,768x768,0,86218434864,86218443755,86218799362,1,1
+mono-fast-black,darken,64x64,0,86219299607,86219300269,86219646376,1,1
+mono-fast-paper,lighten,64x64,0,86220146608,86220147075,86220493652,1,1
+mono-fast-black,darken,256x256,0,86220994515,86220996561,86221341125,1,1
+mono-fast-paper,lighten,256x256,0,86221841983,86221843826,86222188285,1,1
+mono-fast-black,darken,768x768,0,86222694592,86222710563,86223059302,1,1
+mono-fast-paper,lighten,768x768,0,86223565577,86223581511,86223930127,1,1
+mono-quality-black,darken,64x64,0,86224430389,86224431277,86225036173,1,1
+mono-quality-paper,lighten,64x64,0,86225536441,86225537504,86226142417,1,1
+mono-quality-black,darken,256x256,0,86226643301,86226648163,86227260442,1,1
+mono-quality-paper,lighten,256x256,0,86227761322,86227766988,86228378406,1,1
+mono-quality-black,darken,768x768,0,86228884736,86228918101,86229531659,1,1
+mono-quality-paper,lighten,768x768,0,86230037918,86230079814,86230696766,1,1
+color-black,darken,64x64,0,86231197018,86231197906,86232461640,1,1
+color-paper,lighten,64x64,0,86232961887,86232962710,86234226877,1,1
+color-black,darken,256x256,0,86234727790,86234732122,86236003896,1,1
+color-paper,lighten,256x256,0,86236504832,86236510017,86237780854,1,1
+color-black,darken,768x768,0,86238287249,86238320105,86239593212,1,1
+color-paper,lighten,768x768,0,86240099500,86240139272,86241405604,1,1
+color-red,darken,64x64,0,86241905887,86241906700,86243170580,1,1
+color-paper,lighten,64x64,0,86243670879,86243671773,86244935818,1,1
+color-red,darken,256x256,0,86245436723,86245441169,86246712810,1,1
+color-paper,lighten,256x256,0,86247213714,86247229407,86248513292,1,1
+color-red,darken,768x768,0,86249019671,86249054190,86250325585,1,1
+color-paper,lighten,768x768,0,86250831848,86250873597,86252149676,1,1
+shutdown: waiting for updates to complete...
+shutdown: waiting for display to finish...
+shutdown: threads stopped
+shutdown: shutting down...
+takeover: app exited (0), restoring xochitl

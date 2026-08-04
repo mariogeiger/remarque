@@ -1,0 +1,38 @@
+...panel tft: C0F
+...panel fpl: AAB0BV
+Loading waveforms from: /usr/share/remarkable/GAL3_AAB0BV_ID3511_AC118TC1F2_AD1004-LHA_TC.eink
+pmic: setting rails to 6.0, 12.0, 24.0, -6.0, -12.0, -24.0
+pmic: setting PDD duration to 30000ms
+temperature_hwmon: found temperature path: /sys/class/hwmon/hwmon8/temp1_input
+update,direction,size,repetition,before_submit_us,after_submit_us,after_drain_us,accepted,drained
+marker-black,marker,768x768,0,1003754359,1003779229,1004133862,1,1
+marker-paper,marker,768x768,0,1004640312,1004649089,1005004712,1,1
+color3-black,darken,64x64,0,1005505008,1005506147,1006110553,1,1
+color3-paper,lighten,64x64,0,1006610809,1006611893,1007216888,1,1
+color3-black,darken,256x256,0,1007717759,1007722590,1008334887,1,1
+color3-paper,lighten,256x256,0,1008835854,1008842402,1009452744,1,1
+color3-black,darken,768x768,0,1009959089,1009991955,1010606241,1,1
+color3-paper,lighten,768x768,0,1011112586,1011156665,1011771272,1,1
+native-live-black,darken,64x64,0,1012271744,1012272964,1012877186,1,1
+native-live-paper,lighten,64x64,0,1013377547,1013378773,1013983477,1,1
+native-live-black,darken,256x256,0,1014484458,1014489290,1015101379,1,1
+native-live-paper,lighten,256x256,0,1015602697,1015608473,1016219288,1,1
+native-live-black,darken,768x768,0,1016725586,1016758391,1017372685,1,1
+native-live-paper,lighten,768x768,0,1017878997,1017920471,1018537780,1,1
+native-live-red,darken,64x64,0,1019038035,1019039237,1019643787,1,1
+native-live-paper,lighten,64x64,0,1020144104,1020145336,1020749835,1,1
+native-live-red,darken,256x256,0,1021250705,1021255450,1021867962,1,1
+native-live-paper,lighten,256x256,0,1022368856,1022374588,1022985954,1,1
+native-live-red,darken,768x768,0,1023492268,1023532381,1024139225,1,1
+native-live-paper,lighten,768x768,0,1024645525,1024687651,1025304322,1,1
+native-mode14-black,darken,64x64,0,1025804568,1025805940,1026410290,1,1
+native-mode14-paper,lighten,64x64,0,1026910554,1026911629,1027516445,1,1
+native-mode14-black,darken,256x256,0,1028017313,1028022115,1028634550,1,1
+native-mode14-paper,lighten,256x256,0,1029135424,1029141345,1029752528,1,1
+native-mode14-black,darken,768x768,0,1030258807,1030292279,1030905742,1,1
+native-mode14-paper,lighten,768x768,0,1031411975,1031456570,1032729927,1,1
+shutdown: waiting for updates to complete...
+shutdown: waiting for display to finish...
+shutdown: threads stopped
+shutdown: shutting down...
+takeover: app exited (0), restoring xochitl

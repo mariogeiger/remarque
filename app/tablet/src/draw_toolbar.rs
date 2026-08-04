@@ -8,8 +8,10 @@ use crate::toolbar::{self, ToolbarAction, ToolbarActionRegion};
 pub(crate) const HEIGHT: usize = 84;
 const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
 const SHADOW: [u8; 3] = [0xd8, 0xd6, 0xd0];
-const SELECTED: [u8; 3] = [0xd8, 0xe8, 0xf6];
 const ICON: [u8; 3] = [0x38, 0x38, 0x36];
+const SELECTION: [u8; 3] = [0x25, 0x25, 0x24];
+const PAGE_INDICATOR_MAX_PIXEL_SIZE: u16 = 32;
+const PAGE_INDICATOR_MIN_PIXEL_SIZE: u16 = 18;
 
 pub(crate) fn draw_toolbar(
     image: &mut BgraImage,
@@ -124,8 +126,18 @@ fn draw_toolbar_button(image: &mut BgraImage, region: ToolbarActionRegion, selec
         region.width,
         toolbar::BUTTON_HEIGHT,
         14.0,
-        if selected { SELECTED } else { PANEL },
+        PANEL,
     );
+    if selected {
+        image.fill_rounded_rectangle(
+            region.x + 10,
+            toolbar::BUTTON_Y + toolbar::BUTTON_HEIGHT - 5,
+            region.width - 20,
+            4,
+            2.0,
+            SELECTION,
+        );
+    }
 }
 
 fn draw_toolbar_separator(image: &mut BgraImage, x: usize) {
@@ -134,13 +146,17 @@ fn draw_toolbar_separator(image: &mut BgraImage, x: usize) {
 
 fn draw_page_indicator(image: &mut BgraImage, page_number: u32, page_count: u32) {
     let text = format!("{page_number}/{page_count}");
-    let text_width = measure_text_width(&text, 20).min(toolbar::PAGE_INDICATOR_WIDTH);
+    let pixel_size = (PAGE_INDICATOR_MIN_PIXEL_SIZE..=PAGE_INDICATOR_MAX_PIXEL_SIZE)
+        .rev()
+        .find(|&pixel_size| measure_text_width(&text, pixel_size) <= toolbar::PAGE_INDICATOR_WIDTH)
+        .unwrap_or(PAGE_INDICATOR_MIN_PIXEL_SIZE);
+    let text_width = measure_text_width(&text, pixel_size).min(toolbar::PAGE_INDICATOR_WIDTH);
     draw_text(
         image,
         toolbar::PAGE_INDICATOR_X + (toolbar::PAGE_INDICATOR_WIDTH - text_width) / 2,
-        55,
+        60,
         &text,
-        20,
+        pixel_size,
         toolbar::PAGE_INDICATOR_WIDTH,
         [0x55, 0x55, 0x52],
     );

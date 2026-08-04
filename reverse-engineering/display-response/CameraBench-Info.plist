@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>RemarqueCameraProbe</string>
+    <key>CFBundleIdentifier</key>
+    <string>ch.mariogeiger.remarque-camera-probe</string>
+    <key>CFBundleName</key>
+    <string>Remarque Camera Probe</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Capture the reMarkable display for e-ink latency measurements.</string>
+</dict>
+</plist>

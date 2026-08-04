@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+bundle=${1:-/tmp/RemarqueCameraProbe.app}
+executable=$bundle/Contents/MacOS/RemarqueCameraProbe
+
+mkdir -p "$bundle/Contents/MacOS"
+cp "$root/CameraBench-Info.plist" "$bundle/Contents/Info.plist"
+xcrun swiftc "$root/CameraBench.swift" -o "$executable" \
+    -framework AppKit -framework AVFoundation -framework CoreMedia
+codesign --force --sign - "$bundle"

@@ -38,6 +38,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const PINCH_RENDER_INTERVAL: Duration = Duration::from_millis(16);
+const PEN_RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const DEVICE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const MINIMUM_SCALE: f64 = 1.0;
 const MAXIMUM_SCALE: f64 = 5.0;
@@ -81,6 +82,8 @@ pub struct Notebook {
     color: Color,
     transform: ViewTransform,
     active_pen_contact: Option<PenContact>,
+    pending_pen_pixels: Option<Rectangle>,
+    last_pen_render: Instant,
     pen_proximity: bool,
     touch_gestures: TouchGestureRecognizer,
     last_pinch_render: Instant,
@@ -112,6 +115,8 @@ impl Notebook {
                 scale: 1.0,
             },
             active_pen_contact: None,
+            pending_pen_pixels: None,
+            last_pen_render: Instant::now(),
             pen_proximity: false,
             touch_gestures: TouchGestureRecognizer::default(),
             last_pinch_render: Instant::now(),
@@ -255,7 +260,18 @@ impl Notebook {
         }
     }
 
-    pub fn apply_pen_frame(&mut self, frame: PenFrame) -> io::Result<bool> {
+    pub fn apply_pen_frames(&mut self, frames: Vec<PenFrame>) -> io::Result<bool> {
+        for frame in frames {
+            if self.apply_pen_frame(frame)? {
+                self.submit_all_pending_pen_pixels();
+                return Ok(true);
+            }
+        }
+        self.submit_pending_pen_pixels_if_due();
+        Ok(false)
+    }
+
+    fn apply_pen_frame(&mut self, frame: PenFrame) -> io::Result<bool> {
         self.pen_proximity = frame.proximity;
         if !frame.touching {
             if self.active_pen_contact.is_some() {
@@ -413,9 +429,34 @@ impl Notebook {
             self.draw_toolbar_into_image()?;
         }
         if let Some(changed) = self.display.copy_changed_from(&self.image, changed)? {
-            self.display.show_mono_fast(changed);
+            self.pending_pen_pixels = Some(
+                self.pending_pen_pixels
+                    .map_or(changed, |pending| pending.include(changed)),
+            );
         }
         Ok(false)
+    }
+
+    fn submit_pending_pen_pixels_if_due(&mut self) {
+        if self.last_pen_render.elapsed() < PEN_RENDER_INTERVAL {
+            return;
+        }
+        self.submit_all_pending_pen_pixels();
+    }
+
+    fn submit_all_pending_pen_pixels(&mut self) {
+        if let Some(changed) = self.pending_pen_pixels.take() {
+            self.display.show_mono_fast(changed);
+            self.last_pen_render = Instant::now();
+        }
+    }
+
+    fn take_pending_pen_pixels_with(&mut self, changed: Option<Rectangle>) -> Option<Rectangle> {
+        match (self.pending_pen_pixels.take(), changed) {
+            (Some(pending), Some(changed)) => Some(pending.include(changed)),
+            (Some(pending), None) => Some(pending),
+            (None, changed) => changed,
+        }
     }
 
     pub fn apply_touch_frame(&mut self, frame: TouchFrame) -> io::Result<bool> {
@@ -517,6 +558,10 @@ impl Notebook {
             self.transform = transform;
             self.transform_pixels_need_render = true;
         }
+        Ok(())
+    }
+
+    pub fn redraw_pending_pinch_frame(&mut self) -> io::Result<()> {
         if self.transform_pixels_need_render
             && self.last_pinch_render.elapsed() >= PINCH_RENDER_INTERVAL
         {
@@ -567,6 +612,7 @@ impl Notebook {
                         self.draw_toolbar_into_image()?;
                     }
                     let changed = self.display.copy_changed_from(&self.image, dirty)?;
+                    let changed = self.take_pending_pen_pixels_with(changed);
                     self.display.show_color(changed);
                 }
             }
@@ -596,6 +642,7 @@ impl Notebook {
                     page.strokes = surviving;
                     self.save_state()?;
                     let changed = self.redraw_notebook()?;
+                    let changed = self.take_pending_pen_pixels_with(changed);
                     self.display.show_color(changed);
                 }
             }
@@ -770,7 +817,7 @@ impl Notebook {
             height: TOOLBAR_HEIGHT,
         };
         let changed = self.display.copy_changed_from(&self.image, toolbar)?;
-        self.display.show_color(changed);
+        self.display.show_color_mode_three(changed);
         Ok(())
     }
 

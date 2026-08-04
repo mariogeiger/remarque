@@ -113,16 +113,15 @@ fn main() -> io::Result<()> {
 
     while !stop.load(Ordering::Relaxed) {
         poll_inputs(pen.raw_fd(), touch.raw_fd(), power_button.raw_fd())?;
-        for frame in pen.drain()? {
-            if notebook.apply_pen_frame(frame)? {
-                return Ok(());
-            }
+        if notebook.apply_pen_frames(pen.drain()?)? {
+            return Ok(());
         }
         for frame in touch.drain()? {
             if notebook.apply_touch_frame(frame)? {
                 return Ok(());
             }
         }
+        notebook.redraw_pending_pinch_frame()?;
         let suspend_requested = power_button.drain_completed_press()?;
         apply_all_pending_document_requests(&mut notebook, &exchange)?;
         notebook.redraw_library_if_device_status_changed()?;

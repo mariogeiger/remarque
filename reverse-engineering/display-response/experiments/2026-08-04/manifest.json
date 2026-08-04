@@ -1,0 +1,297 @@
+{
+  "schema": 1,
+  "experiment": "2026-08-04",
+  "firmware": "3.27.3.0",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 7085,
+      "sha256": "815b85a282e8275c8ed1954cc172a1e3c8e8c157c94cbff59fb8b633573a8613"
+    },
+    {
+      "path": "calibration-camera.csv.zst",
+      "bytes": 2557111,
+      "sha256": "b88fe6498d6fe36357dc04f38dd03731e08728a33dba27d42b9890396900a739"
+    },
+    {
+      "path": "calibration-device.csv",
+      "bytes": 2445,
+      "sha256": "a3f86eaf81dca701f4b79f0983f1a6550f04bf55fef6a8ff0b7f5adf2c077e08"
+    },
+    {
+      "path": "camera-calibration-rectified.png",
+      "bytes": 221873,
+      "sha256": "e2b83520e62d5b42fcf0c6ad8d6dc1c152c67eb2db7542de642752b2e81ae55c"
+    },
+    {
+      "path": "camera-calibration.jpg",
+      "bytes": 754103,
+      "sha256": "7e635f2481a3c940497adc590928d4bfa6a61a0c6c32ff0e9a33b9368df3fd54"
+    },
+    {
+      "path": "mode14-camera.csv",
+      "bytes": 215203,
+      "sha256": "85c719178ca69dd3315534e2fd81764bc3ff0071fdf14debb976c79bb4a56cd0"
+    },
+    {
+      "path": "mode14-clock-after.csv",
+      "bytes": 10634,
+      "sha256": "ab33d18b77918522fb875268b102794d14a36ce5122c878a2b1244ace0a58dbd"
+    },
+    {
+      "path": "mode14-clock-before.csv",
+      "bytes": 10435,
+      "sha256": "3de8d7fbb117f6350c44e3fc3bd530e739ea1ee7a8358fcdfbbc5ce249ba7562"
+    },
+    {
+      "path": "mode14-device.csv",
+      "bytes": 2427,
+      "sha256": "7ad98a482e38c5fcf1ee958a9015a8558c2dd4701c5c43c96bacf64b208fa1cf"
+    },
+    {
+      "path": "mode14-device.stderr",
+      "bytes": 319,
+      "sha256": "1fae582a03357291cfa5e54878d4d068bc2fa0005512533a22ce35fe430195ef"
+    },
+    {
+      "path": "mode14-response.csv",
+      "bytes": 5840,
+      "sha256": "8d61c93038e1666d5a4386d9da4bc276472a155be02e18c1a12aea9112ff54f0"
+    },
+    {
+      "path": "mode14-summary.csv",
+      "bytes": 4932,
+      "sha256": "dbe21e739f8898a2b7ccf6d2de09b1d51806ba41061b77ad0ebf3d21c97a4516"
+    },
+    {
+      "path": "native-input-replay/README.md",
+      "bytes": 3409,
+      "sha256": "36594ca6cd164ab2478a0b398208934d9d6479474f1f61520708b6b95a6b211b"
+    },
+    {
+      "path": "native-input-replay/eraser-injection.jsonl.zst",
+      "bytes": 70224,
+      "sha256": "467a1e0f3ab853cff2f8e0485fc24ddfe76ff66fb6b90cd7945d4a0e17217cd2"
+    },
+    {
+      "path": "native-input-replay/eraser-input.raw",
+      "bytes": 126912,
+      "sha256": "3dcb5e1f755acc6472e65c8ba3f36f5f1e230a6b3da17b4b51a40f137954def1"
+    },
+    {
+      "path": "native-input-replay/eraser-native-events.jsonl.zst",
+      "bytes": 93224,
+      "sha256": "cdb8d05fb55195a56be9860e87aa3a12dbb0f8d3758665f935f71cabdc587c9e"
+    },
+    {
+      "path": "native-input-replay/pen-after.jpg",
+      "bytes": 706794,
+      "sha256": "3764929f989ef12116833a51c08da478d36d426b3547e5e16419b311857fac0f"
+    },
+    {
+      "path": "native-input-replay/pen-camera.csv.zst",
+      "bytes": 2609694,
+      "sha256": "e10c840709d79eab4738cf25850a1d115a80f6ae18c3cc28881fcabfb980903c"
+    },
+    {
+      "path": "native-input-replay/pen-clock-after.csv",
+      "bytes": 10430,
+      "sha256": "cde0de084bbef59af922fc697ca527f5dca152a0b32a3794c75eee58038674c5"
+    },
+    {
+      "path": "native-input-replay/pen-clock-before.csv",
+      "bytes": 10449,
+      "sha256": "836d91daa586748be5041f195bcf1ca71ea9094f49b07bb3b58ab707b4dee7b4"
+    },
+    {
+      "path": "native-input-replay/pen-injection.jsonl.zst",
+      "bytes": 93310,
+      "sha256": "3a3ce172f1fcdb3f31f133c115a90ccce7b149438e65e717b5b61fd3c70857c0"
+    },
+    {
+      "path": "native-input-replay/pen-input.raw",
+      "bytes": 154752,
+      "sha256": "dca752ddad0c112df7ea44cebce119ad55e782fbd5bc62cdfe52e710a8a9779d"
+    },
+    {
+      "path": "native-input-replay/pen-regions.csv",
+      "bytes": 17974,
+      "sha256": "98cb8331c4bf1b4354dadcc7b8aa000bf88c923c2c8a1dd3385b6e0e459f8de9"
+    },
+    {
+      "path": "native-input-replay/pen-response.csv",
+      "bytes": 5028,
+      "sha256": "0cd9d7500a326c9f0d0883ae8bcc1335d2780cba9e33992c6133adf6418eea6d"
+    },
+    {
+      "path": "native-input-replay/pen-summary.json",
+      "bytes": 778,
+      "sha256": "963811a7c6ee8897dc68a70d236977d9de9431b26dcb5045f2703d7ce8ea0881"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/README.md",
+      "bytes": 2055,
+      "sha256": "7f0405b2eee779a4c1af7ddb0a0baeb73ff943195c50064b74fa1102ae517dac"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/camera.csv.zst",
+      "bytes": 691511,
+      "sha256": "094dd5a00747c5c15ee64c0c500c6d9128891da6a2389f8c6b6226b87aa9460b"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/clock-after.csv",
+      "bytes": 5267,
+      "sha256": "3acde136c9186b74f7939d25f4d40e1615b09bf565ad55fca1608bbc4e6820ba"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/clock-before.csv",
+      "bytes": 5243,
+      "sha256": "7d57d15cf5ecee5fa9c7606ef87255cea147e18ba17bc532d6f912ce8275778a"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/injection.jsonl.zst",
+      "bytes": 93501,
+      "sha256": "9568e403a815ec3f25202577ade2de157d05b681ce097fdd9c601d8aa0930a24"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/response.csv",
+      "bytes": 4949,
+      "sha256": "2620b9f9002759ff963b14af775a2868f945d88495f2d81352e163bdd143eaaf"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/batch-coalesced/summary.json",
+      "bytes": 778,
+      "sha256": "849f467817171c3d8dbbd4d6853c4aef6a12f3be632615fc2452c3f985b0e57a"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/after.jpg",
+      "bytes": 714744,
+      "sha256": "bdf99eb3335cc2d6d1854e87d60150c05306a15f983bbbdd256a3c6ed87926e9"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/camera.csv.zst",
+      "bytes": 673108,
+      "sha256": "9f11f773b9a78ec51ade4d15a6c2f9576ad6c444411525500019a4abe5f07b82"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/clock-after.csv",
+      "bytes": 5251,
+      "sha256": "fe5ac8d417348c1156ca56cdbc3f3124ed83d0c59e7fe2b278a9578c21c9c1c7"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/clock-before.csv",
+      "bytes": 5265,
+      "sha256": "9a1d1f52ae41dc024107dbd762b294176155ef094dd5992cae50647956e012f6"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/injection.jsonl.zst",
+      "bytes": 93315,
+      "sha256": "c96fdd2f955a04dba543bca089530a2c814c68b7c983b324f822d7c0d12a3ff6"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/response.csv",
+      "bytes": 4837,
+      "sha256": "c24b9cf014f273f81b4bd5326e40af2a795b2455ce54626da6ef5c52f1d3741f"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/frame-paced/summary.json",
+      "bytes": 776,
+      "sha256": "3bf5ee282a1fcd3ffd818d1b0de17c20480e99778bb5785d9efc5013c1f4921b"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/camera.csv.zst",
+      "bytes": 668990,
+      "sha256": "2e18cd807f5df1b3b553d3ac40340a8e896492d80201015ba257942c910dcbfd"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/clock-after.csv",
+      "bytes": 5263,
+      "sha256": "fa342f1f392fba767798a79476031391260f5de12aa1b7b18050bcb6c0f46dd1"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/clock-before.csv",
+      "bytes": 5265,
+      "sha256": "f1d0021ebcb8abd92a560f0383900ca71957459777300bcce84e0a413a1b9780"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/injection.jsonl.zst",
+      "bytes": 93167,
+      "sha256": "8092eadf280e9d885a2bd56677a36dce1cfb307d8981da6b332c9169c7b354eb"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/response.csv",
+      "bytes": 4584,
+      "sha256": "9990df574188049687785ddf95d331941ad90b6291b9d5cf92b1876c214757f6"
+    },
+    {
+      "path": "native-input-replay/rust-comparison/uncoalesced/summary.json",
+      "bytes": 783,
+      "sha256": "8421d0439911a029bcdab8394c27b663d42561e2f75b29c9d010205b3cab25f4"
+    },
+    {
+      "path": "native-mode-camera.csv.zst",
+      "bytes": 64316,
+      "sha256": "e8ceafdcd63175da5048cda7cd56f2cbcee95f55d4123b79085f18f57c04d34a"
+    },
+    {
+      "path": "native-mode-clock-after.csv",
+      "bytes": 32620,
+      "sha256": "c9dc852758b10a04b588b19c040ed17ad9c8819d945f8bcda13d36cfc6eb6463"
+    },
+    {
+      "path": "native-mode-clock-before.csv",
+      "bytes": 32606,
+      "sha256": "1957727ef40342aa216885e967159cd0f54b5a2de0812dc6cfe946623da61b27"
+    },
+    {
+      "path": "native-mode-device.csv",
+      "bytes": 3355,
+      "sha256": "564ee653382dc522d4a69982188125a1ccfb3e9e33dfb24a74616dad644c4a54"
+    },
+    {
+      "path": "native-mode-response.csv",
+      "bytes": 8301,
+      "sha256": "43f88e3b036ca6e773c261d850117c5c5cc2ba07fa2a11894f5d538965b33f91"
+    },
+    {
+      "path": "native-mode-summary.csv",
+      "bytes": 3753,
+      "sha256": "f24a9306dc3bf46b4faf582a8811bd3ec56c4eb05d026adb25fc9e2427c25275"
+    },
+    {
+      "path": "quill-display-timing.patch.zst",
+      "bytes": 5823,
+      "sha256": "b1d847e8311c3d065f3a46f8e487fa438fbc3f7ec13b8aa3b5c7026ddd97ae5b"
+    },
+    {
+      "path": "standard-camera.csv.zst",
+      "bytes": 60910,
+      "sha256": "69243db2347f29c7d22285beb46c74c21f778e142ba21cb4a6672d61ee44eec3"
+    },
+    {
+      "path": "standard-clock-after.csv",
+      "bytes": 32579,
+      "sha256": "2ff617be16ebb7dae81991c51aa2ee1fffd0f28fbf22b529f25abb71e64d8125"
+    },
+    {
+      "path": "standard-clock-before.csv",
+      "bytes": 32623,
+      "sha256": "deaa7eed825da0425e8ea56dcd614f1a4af33b6fe146057c24c5b8ed37f791b8"
+    },
+    {
+      "path": "standard-device.csv",
+      "bytes": 4157,
+      "sha256": "f6886f8e991ee98307121e9425a884245428323cf082f2fbc83ee6437255f7da"
+    },
+    {
+      "path": "standard-response.csv",
+      "bytes": 10868,
+      "sha256": "b878deb5b59469c7d196a20ea2d89bd032b7b5be5b9bb230bb9de6f38cf1ae80"
+    },
+    {
+      "path": "standard-summary.csv",
+      "bytes": 5030,
+      "sha256": "d395cdcc4addf955d45461386d434a15a01128b7416e334cf3c45ae2ebc2fd74"
+    }
+  ]
+}

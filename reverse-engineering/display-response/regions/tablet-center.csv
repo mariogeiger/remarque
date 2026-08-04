@@ -1,0 +1,3 @@
+# Region inside every centered probe rectangle after camera projection.
+name,x,y,width,height
+center,990,565,20,20

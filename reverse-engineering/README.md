@@ -4,6 +4,8 @@ This directory owns every tool and artifact used to understand Xochitl. None of
 its crates are linked into the Remarque application.
 
 - `native-observer/` contains on-device runtime capture probes.
+- `display-response/` aligns device, camera, and input clocks to measure the
+  physical panel rather than infer responsiveness from queue completion.
 - `native-replay/` converts distilled fixtures into differential tests against
   the clean application core.
 - `ghidra/` assigns evidence-backed names and types to the stripped binary.

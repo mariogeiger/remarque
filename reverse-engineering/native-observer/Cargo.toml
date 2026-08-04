@@ -17,3 +17,7 @@ path = "src/capture_native_triangles.rs"
 [[bin]]
 name = "capture-native-stroke-trace"
 path = "src/capture_native_stroke_trace.rs"
+
+[[bin]]
+name = "replay-marker-input"
+path = "src/replay_marker_input.rs"

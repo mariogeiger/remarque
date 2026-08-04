@@ -142,18 +142,26 @@ fn capture_stroke_trace() -> io::Result<()> {
 
     let process_id = find_process_named("xochitl")?;
     require_supported_xochitl_mapping(process_id)?;
-    let framebuffer = XochitlFramebuffer::locate_for_process(process_id as u32)?;
     let memory = File::open(format!("/proc/{process_id}/mem"))?;
-    let mut frame_before = vec![0; FRAME_BYTE_COUNT];
-    framebuffer.read(&memory, &mut frame_before)?;
-    fs::write(directory.join("framebuffer-before.bgra"), &frame_before)?;
+    let framebuffer = match XochitlFramebuffer::locate_for_process(process_id as u32) {
+        Ok(framebuffer) => {
+            let mut frame_before = vec![0; FRAME_BYTE_COUNT];
+            framebuffer.read(&memory, &mut frame_before)?;
+            fs::write(directory.join("framebuffer-before.bgra"), &frame_before)?;
+            Some(framebuffer)
+        }
+        Err(error) => {
+            eprintln!("framebuffer_unavailable={error}");
+            None
+        }
+    };
 
     let capture_input = Arc::new(AtomicBool::new(true));
     let input_thread = record_raw_pen_input(directory.clone(), capture_input.clone())?;
     let mut threads = attach_threads(process_id)?;
     let breakpoints = install_breakpoints(threads[0])?;
     let mut events = BufWriter::new(File::create(directory.join("events.jsonl"))?);
-    write_metadata(&directory, process_id, &breakpoints)?;
+    write_metadata(&directory, process_id, &breakpoints, framebuffer.is_some())?;
     for &thread_id in &threads {
         continue_thread(thread_id, 0)?;
     }
@@ -177,20 +185,29 @@ fn capture_stroke_trace() -> io::Result<()> {
         .join()
         .map_err(|_| io::Error::other("raw input recorder panicked"))?;
     let stop_result = stop_threads(&threads);
-    if stop_result.is_ok() {
-        let mut frame_after = vec![0; FRAME_BYTE_COUNT];
-        framebuffer.read(&memory, &mut frame_after)?;
-        fs::write(directory.join("framebuffer-after.bgra"), frame_after)?;
-        if let Some(surface) = drawing_surface {
-            save_drawing_surface(&directory, &memory, surface)?;
-        }
-    }
+    let snapshots_result = if stop_result.is_ok() {
+        (|| {
+            if let Some(framebuffer) = framebuffer {
+                let mut frame_after = vec![0; FRAME_BYTE_COUNT];
+                framebuffer.read(&memory, &mut frame_after)?;
+                fs::write(directory.join("framebuffer-after.bgra"), frame_after)?;
+            }
+            if let Some(surface) = drawing_surface {
+                save_drawing_surface(&directory, &memory, surface)?;
+            }
+            Ok(())
+        })()
+    } else {
+        Ok(())
+    };
     let detach_result = restore_breakpoints_and_detach(&threads, &breakpoints);
-    events.flush()?;
+    let flush_result = events.flush();
     capture_result
         .and(input_result)
         .and(stop_result)
-        .and(detach_result)?;
+        .and(snapshots_result)
+        .and(detach_result)
+        .and(flush_result)?;
     println!("capture_complete_events={sequence}");
     Ok(())
 }
@@ -348,7 +365,7 @@ fn write_event(
         }
         BreakpointKind::Triangle => {
             let record = read_triangle(memory, thread_id, registers)?;
-            if drawing_surface.is_none() {
+            if drawing_surface.is_none() && (IMAGE_WIDTH..=4096).contains(&record.stride) {
                 let before = read_drawing_surface(memory, record.image, record.stride)?;
                 *drawing_surface = Some(DrawingSurfaceCapture {
                     address: record.image,
@@ -568,7 +585,12 @@ fn open_marker_input() -> io::Result<File> {
     ))
 }
 
-fn write_metadata(directory: &Path, process_id: i32, breakpoints: &[Breakpoint]) -> io::Result<()> {
+fn write_metadata(
+    directory: &Path,
+    process_id: i32,
+    breakpoints: &[Breakpoint],
+    framebuffer_captured: bool,
+) -> io::Result<()> {
     let mut output = BufWriter::new(File::create(directory.join("metadata.json"))?);
     writeln!(output, "{{")?;
     writeln!(output, "  \"firmware\": \"3.27.3.0\",")?;
@@ -577,6 +599,10 @@ fn write_metadata(directory: &Path, process_id: i32, breakpoints: &[Breakpoint])
     writeln!(output, "  \"pixel_format\": \"BGRA8888\",")?;
     writeln!(output, "  \"image_width\": {IMAGE_WIDTH},")?;
     writeln!(output, "  \"image_height\": {IMAGE_HEIGHT},")?;
+    writeln!(
+        output,
+        "  \"framebuffer_captured\": {framebuffer_captured},"
+    )?;
     writeln!(output, "  \"breakpoints\": [")?;
     for (index, breakpoint) in breakpoints.iter().enumerate() {
         let comma = if index + 1 == breakpoints.len() {

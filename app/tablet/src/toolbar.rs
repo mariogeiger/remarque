@@ -3,7 +3,7 @@ use remarque_core::fineliner::FinelinerThickness;
 
 pub const PANEL_X: usize = 16;
 pub const PANEL_Y: usize = 8;
-pub const PANEL_WIDTH: usize = 732;
+pub const PANEL_WIDTH: usize = 758;
 pub const PANEL_HEIGHT: usize = 68;
 pub const BUTTON_Y: usize = 14;
 pub const BUTTON_HEIGHT: usize = 56;
@@ -21,8 +21,8 @@ pub const RED_BUTTON_X: usize = 476;
 pub const YELLOW_BUTTON_X: usize = 520;
 pub const COLOR_BUTTON_WIDTH: usize = 44;
 pub const PAGE_INDICATOR_X: usize = 586;
-pub const PAGE_INDICATOR_WIDTH: usize = 70;
-pub const ADD_PAGE_BUTTON_X: usize = 668;
+pub const PAGE_INDICATOR_WIDTH: usize = 96;
+pub const ADD_PAGE_BUTTON_X: usize = 694;
 pub const ADD_PAGE_BUTTON_WIDTH: usize = 72;
 #[cfg(feature = "takeover")]
 pub(crate) const SEPARATOR_XS: [usize; 3] = [106, 334, 574];

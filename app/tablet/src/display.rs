@@ -14,6 +14,7 @@ unsafe extern "C" {
     fn quill_buffer() -> *mut u8;
     fn quill_swap_mono_fast(x: i32, y: i32, width: i32, height: i32) -> u64;
     fn quill_swap_mono_quality(x: i32, y: i32, width: i32, height: i32) -> u64;
+    fn quill_swap_color_mode_three(x: i32, y: i32, width: i32, height: i32) -> u64;
     fn quill_swap_color(x: i32, y: i32, width: i32, height: i32) -> u64;
     fn quill_swap_color_full(x: i32, y: i32, width: i32, height: i32) -> u64;
     fn quill_process_events();
@@ -186,6 +187,26 @@ impl QuillDisplay {
         };
         unsafe {
             quill_swap_color(
+                rectangle.x as i32,
+                rectangle.y as i32,
+                rectangle.width as i32,
+                rectangle.height as i32,
+            );
+            quill_process_events();
+        }
+    }
+
+    pub fn show_color_mode_three(&self, changed: Option<Rectangle>) {
+        let rectangle = self
+            .fast_mono_cleanup
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take_color_update(changed);
+        let Some(rectangle) = rectangle else {
+            return;
+        };
+        unsafe {
+            quill_swap_color_mode_three(
                 rectangle.x as i32,
                 rectangle.y as i32,
                 rectangle.width as i32,

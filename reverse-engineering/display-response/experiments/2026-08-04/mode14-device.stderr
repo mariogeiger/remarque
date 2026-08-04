@@ -1,0 +1,8 @@
+QThread::setPriority: Cannot set priority, thread is not running
+quill: framebuffer 1620x2160 stride=6528 format=4
+Invalid screen mode being set: 14
+Invalid screen mode being set: 14
+Invalid screen mode being set: 14
+Invalid screen mode being set: 14
+Invalid screen mode being set: 14
+Invalid screen mode being set: 14
