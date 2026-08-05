@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+source_plist=/Users/mgeiger/ink.geiger.remarque-page-relay.system.plist
+installed_plist=/Library/LaunchDaemons/ink.geiger.remarque-page-relay.plist
+legacy_agent=/Users/mgeiger/Library/LaunchAgents/ink.geiger.remarque-page-relay.plist
+retired_agent=/Users/mgeiger/Library/Application\ Support/RemarquePageRelay/retired-launch-agent.plist
+
+test "$(id -u)" -eq 0
+plutil -lint "$source_plist"
+install -o root -g wheel -m 0644 "$source_plist" "$installed_plist"
+launchctl bootout gui/501/ink.geiger.remarque-page-relay 2>/dev/null || true
+if test -f "$legacy_agent"; then
+  mv "$legacy_agent" "$retired_agent"
+  chown mgeiger:staff "$retired_agent"
+fi
+launchctl bootout system/ink.geiger.remarque-page-relay 2>/dev/null || true
+launchctl bootstrap system "$installed_plist"
+launchctl enable system/ink.geiger.remarque-page-relay
+launchctl kickstart -k system/ink.geiger.remarque-page-relay

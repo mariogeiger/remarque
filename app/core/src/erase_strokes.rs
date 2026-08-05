@@ -29,8 +29,21 @@ pub fn erase_stroke(
     eraser_centerline: &[Point],
     eraser_width: f64,
 ) -> Vec<Vec<StrokePoint>> {
-    if stroke.len() < 2 || eraser_centerline.is_empty() {
+    if stroke.is_empty() || eraser_centerline.is_empty() {
         return vec![stroke.to_vec()];
+    }
+    if stroke.len() == 1 {
+        let point = stroke[0];
+        let center = Point {
+            x: f64::from(point.x),
+            y: f64::from(point.y),
+        };
+        let radius = (f64::from(point.width_quarter_pixels) * 0.25 + eraser_width) * 0.5;
+        return if erased_intervals(center, center, eraser_centerline, radius).is_empty() {
+            vec![stroke.to_vec()]
+        } else {
+            Vec::new()
+        };
     }
 
     let mut sections = Vec::new();
@@ -52,6 +65,18 @@ pub fn erase_stroke(
             eraser_centerline,
             (source_width + eraser_width) * 0.5,
         );
+
+        if start.x == end.x && start.y == end.y {
+            if erased.is_empty() {
+                if current.is_empty() {
+                    current.push(start);
+                }
+                current.push(end);
+            } else {
+                finish_section(&mut sections, &mut current);
+            }
+            continue;
+        }
 
         let mut cursor = 0.0;
         for interval in erased {
@@ -81,14 +106,20 @@ fn append_kept_interval(
     if to - from <= f64::EPSILON {
         return;
     }
-    let from_point = start.interpolate(end, from as f32);
-    let to_point = start.interpolate(end, to as f32);
-    if section.last() != Some(&from_point) {
+    let from_point = if from <= 0.0 {
+        start
+    } else {
+        start.interpolate(end, from as f32)
+    };
+    let to_point = if to >= 1.0 {
+        end
+    } else {
+        start.interpolate(end, to as f32)
+    };
+    if section.is_empty() {
         section.push(from_point);
     }
-    if section.last() != Some(&to_point) {
-        section.push(to_point);
-    }
+    section.push(to_point);
 }
 
 fn finish_section(sections: &mut Vec<Vec<StrokePoint>>, current: &mut Vec<StrokePoint>) {
@@ -313,5 +344,40 @@ mod tests {
         let stroke = [point(0.0, 0.0), point(100.0, 0.0)];
         let eraser = [Point { x: 50.0, y: 0.0 }];
         assert!(erase_stroke(&stroke, &eraser, 200.0).is_empty());
+    }
+
+    #[test]
+    fn eraser_deletes_an_intersected_single_point_stroke() {
+        let stroke = [point(50.0, 50.0)];
+        let eraser = [Point { x: 55.0, y: 50.0 }];
+        assert!(erase_stroke(&stroke, &eraser, 20.0).is_empty());
+    }
+
+    #[test]
+    fn eraser_keeps_a_disjoint_single_point_stroke() {
+        let stroke = [point(50.0, 50.0)];
+        let eraser = [Point { x: 80.0, y: 50.0 }];
+        assert_eq!(erase_stroke(&stroke, &eraser, 20.0), vec![stroke.to_vec()]);
+    }
+
+    #[test]
+    fn disjoint_eraser_preserves_repeated_points_exactly() {
+        let a = point(10.0, 20.0);
+        let b = point(30.0, 40.0);
+        let stroke = [a, a, b, b, b];
+        let eraser = [Point {
+            x: 1_000.0,
+            y: 1_000.0,
+        }];
+        assert_eq!(erase_stroke(&stroke, &eraser, 20.0), vec![stroke.to_vec()]);
+    }
+
+    #[test]
+    fn stationary_multi_point_stroke_survives_or_is_erased_as_one_mark() {
+        let stroke = [point(50.0, 50.0); 12];
+        let distant = [Point { x: 80.0, y: 50.0 }];
+        assert_eq!(erase_stroke(&stroke, &distant, 20.0), vec![stroke.to_vec()]);
+        let crossing = [Point { x: 55.0, y: 50.0 }];
+        assert!(erase_stroke(&stroke, &crossing, 20.0).is_empty());
     }
 }

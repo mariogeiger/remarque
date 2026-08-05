@@ -1,0 +1,27 @@
+[Unit]
+Description=Remarque collaborative page relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+UMask=0077
+EnvironmentFile=/etc/remarque/page-relay.env
+Environment=REMARQUE_RELAY_LISTEN=127.0.0.1:7433
+Environment=REMARQUE_RELAY_PUBLIC_ORIGIN=https://remarque.geiger.ink
+Environment=REMARQUE_RELAY_DATA_DIR=/var/lib/remarque-page-relay
+Environment=REMARQUE_RELAY_VIEWER_DIR=/usr/lib/remarque-page-relay/wasm
+ExecStart=/usr/local/bin/remarque-page-relay
+StateDirectory=remarque-page-relay
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

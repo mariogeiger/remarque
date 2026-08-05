@@ -40,6 +40,8 @@ mod render_page_view;
 pub mod screen_stream;
 #[cfg(any(feature = "takeover", test))]
 mod screen_stream_protocol;
+#[cfg(feature = "takeover")]
+mod shared_page_connection;
 #[cfg(any(feature = "takeover", test))]
 pub mod sleep_cycle_measurement;
 #[cfg(any(feature = "takeover", test))]

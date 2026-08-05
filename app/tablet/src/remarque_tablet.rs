@@ -88,6 +88,9 @@ fn wait_for_panel_discharge_or_power_button(
 }
 
 fn main() -> io::Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|_| io::Error::other("TLS crypto provider was already selected"))?;
     let stop = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(SIGTERM, Arc::clone(&stop))?;
     signal_hook::flag::register(SIGINT, Arc::clone(&stop))?;
@@ -124,6 +127,10 @@ fn main() -> io::Result<()> {
         notebook.redraw_pending_pinch_frame()?;
         let suspend_requested = power_button.drain_completed_press()?;
         apply_all_pending_document_requests(&mut notebook, &exchange)?;
+        if let Err(error) = notebook.apply_shared_page_messages() {
+            eprintln!("shared_page_disabled_after_error={error}");
+            notebook.disconnect_page_share();
+        }
         notebook.redraw_library_if_device_status_changed()?;
         if suspend_requested {
             notebook.finish_input_sequences_and_save_state()?;

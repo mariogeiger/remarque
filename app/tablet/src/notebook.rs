@@ -23,6 +23,7 @@ use crate::render_page_view::{
     eraser_preview_point, fineliner_segment_rectangle, identity_transform,
     transform_background_nearest_neighbor, transform_stroke_point,
 };
+use crate::shared_page_connection::{SharedPageConnection, SharedPageEvent};
 use crate::stroke::{PenSample, Stroke};
 use crate::toolbar::{ToolbarAction, toolbar_action_at_x};
 use crate::touch_gesture::{
@@ -31,8 +32,18 @@ use crate::touch_gesture::{
 use crate::touch_tap::TapSurface;
 use crate::view_transform::{Bounds, Point, Size, ViewTransform};
 use crate::wifi::read_wifi_connection;
-use remarque_document::{DocumentSummary, ExportScope};
+use remarque_document::{
+    DocumentSummary, ExportScope, write_bytes_atomically, write_json_atomically,
+};
+use remarque_page_log::{
+    BackgroundAsset, BackgroundEncoding, ClientMessage, CommandId, PageCommand, PageDimensions,
+    PageIdentity, PageJournal, PageOperation, PageSnapshot, ParticipantId, ServerMessage,
+    SharedStroke, StrokeId, StrokeReplacement, SubmittedPageOperation, snapshot_digest,
+};
+use std::collections::BTreeMap;
+use std::fs;
 use std::io;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -50,6 +61,7 @@ enum PenContact {
         color: Color,
         rasterizer: FinelinerRasterizer,
         dirty: Option<Rectangle>,
+        shared_stroke: Option<SharedLocalStroke>,
     },
     Eraser {
         centerline: Vec<Point>,
@@ -58,6 +70,11 @@ enum PenContact {
     OutsidePage,
     Toolbar,
     Library,
+}
+
+struct SharedLocalStroke {
+    id: StrokeId,
+    submitted_points: usize,
 }
 
 struct ImageBackup {
@@ -69,6 +86,8 @@ struct OpenDocument {
     document_id: String,
     page: Page,
 }
+
+include!("notebook_shared_page.rs");
 
 pub struct Notebook {
     display: Arc<EpaperDisplay>,
@@ -90,6 +109,7 @@ pub struct Notebook {
     transform_pixels_need_render: bool,
     device_status: String,
     last_device_status_read: Instant,
+    shared_page: Option<SharedPageSession>,
 }
 
 impl Notebook {
@@ -123,6 +143,7 @@ impl Notebook {
             transform_pixels_need_render: false,
             device_status: String::new(),
             last_device_status_read: Instant::now(),
+            shared_page: None,
         };
         if let Err(error) = notebook.restore_state() {
             eprintln!("notebook_state_ignored={error}");
@@ -267,6 +288,9 @@ impl Notebook {
                 return Ok(true);
             }
         }
+        if self.last_pen_render.elapsed() >= PEN_RENDER_INTERVAL {
+            self.flush_shared_stroke_points()?;
+        }
         self.submit_pending_pen_pixels_if_due();
         Ok(false)
     }
@@ -319,12 +343,18 @@ impl Notebook {
                 self.active_pen_contact = Some(PenContact::OutsidePage);
                 return Ok(false);
             }
+            let drawing_color = if self.current_page_is_shared() {
+                Color::Black
+            } else {
+                self.color
+            };
             self.active_pen_contact = Some(match frame.tool {
                 PenTool::Tip => PenContact::Fineliner {
                     builder: FinelinerStrokeBuilder::new(self.fineliner_thickness),
-                    color: self.color,
-                    rasterizer: FinelinerRasterizer::new(self.color),
+                    color: drawing_color,
+                    rasterizer: FinelinerRasterizer::new(drawing_color),
                     dirty: None,
+                    shared_stroke: self.begin_shared_stroke()?,
                 },
                 PenTool::EraserEnd => PenContact::Eraser {
                     centerline: Vec::new(),
@@ -345,6 +375,7 @@ impl Notebook {
                 color: _,
                 rasterizer,
                 dirty,
+                shared_stroke: _,
             } => {
                 let point = builder.append_sample(
                     PenSample {
@@ -590,13 +621,18 @@ impl Notebook {
                 color,
                 mut rasterizer,
                 dirty,
+                shared_stroke,
             }) => {
                 rasterizer.finish(&mut self.image);
                 let points = builder.finish();
-                if !points.is_empty() {
+                if points.is_empty() {
+                    if let Some(shared_stroke) = shared_stroke {
+                        self.cancel_shared_stroke(shared_stroke)?;
+                    }
+                } else {
                     let page_x = self.page()?.rectangle.x as f32;
                     let page_y = self.page()?.rectangle.y as f32;
-                    let points = points
+                    let points: Vec<_> = points
                         .into_iter()
                         .map(|mut point| {
                             point.x -= page_x;
@@ -604,7 +640,13 @@ impl Notebook {
                             point
                         })
                         .collect();
-                    self.page_mut()?.strokes.push(Stroke { points, color });
+                    self.page_mut()?.strokes.push(Stroke {
+                        points: points.clone(),
+                        color,
+                    });
+                    if let Some(shared_stroke) = shared_stroke {
+                        self.finish_shared_stroke(shared_stroke, &points)?;
+                    }
                     self.save_state()?;
                 }
                 if let Some(dirty) = dirty {
@@ -629,6 +671,7 @@ impl Notebook {
                         })
                         .collect::<Vec<_>>();
                     let eraser_width = self.eraser_thickness.pixels();
+                    self.submit_shared_eraser(&local_centerline, eraser_width)?;
                     let page = self.page_mut()?;
                     for stroke in page.strokes.drain(..) {
                         for points in erase_stroke(&stroke.points, &local_centerline, eraser_width)
@@ -702,6 +745,24 @@ impl Notebook {
                 })
                 .collect();
             render_fineliner_raster_points(&mut image, &points, stroke.color);
+        }
+        if let Some(session) = &self.shared_page
+            && self.current_page_identity().as_ref() == Some(&session.identity)
+        {
+            for active in &session.journal.snapshot().active_strokes {
+                let points = active
+                    .stroke
+                    .points
+                    .iter()
+                    .copied()
+                    .map(|mut point| {
+                        point.x += page.rectangle.x as f32;
+                        point.y += page.rectangle.y as f32;
+                        transform_stroke_point(point, transform, view_size)
+                    })
+                    .collect::<Vec<_>>();
+                render_fineliner_raster_points(&mut image, &points, active.stroke.color);
+            }
         }
         Ok(image)
     }

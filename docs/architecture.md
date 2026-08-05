@@ -20,10 +20,15 @@ Product intent                    Native behavior worth preserving
                          v              |
                      app/tablet <-------+
        interaction, PDF rendering, and hardware adapters
-                         ^
-                         |
-                  app/telegram-bot
-                private PDF transport
+                    ^             |
+                    |        app/page-log
+             app/telegram-bot     |
+        private control plane     v
+                            app/page-relay
+                         durable page authority
+                                  |
+                     app/browser-page-renderer
+                       Rust/Wasm canvas replica
 ```
 
 ## Workspace boundaries
@@ -34,7 +39,10 @@ Product intent                    Native behavior worth preserving
 | `app/document` | Durable library protocol, content IDs, flattened PDF writing | Telegram, PDF rendering, UI, hardware |
 | `app/tablet` | Hardware adapters, PDFium rendering, notebook interaction, presentation, in-process screen streaming, UI takeover | Decompiled source or capture logic |
 | `app/telegram-bot` | One-chat Telegram transport, private credentials, service activation | Drawing, rendering, graphical UI |
-| `app/deploy` | Explicit service definitions for the tablet | Hidden installation logic |
+| `app/page-log` | Ordered page operations, permissions, snapshots, binary protocol | Network transport, UI, persistence paths |
+| `app/page-relay` | Authenticated 24-hour shares, durable authority, WebSocket fanout, background assets | Drawing input or canvas rendering |
+| `app/browser-page-renderer` | Browser-side Rust/Wasm page replica and rasterization | Share authority or secret persistence |
+| `app/deploy` | Explicit service definitions for the tablet and relay | Hidden installation logic |
 | `reverse-engineering/native-observer` | Firmware-specific runtime capture probes | Product behavior or screen serving |
 | `reverse-engineering/native-replay` | Immutable native fixtures and comparisons against core behavior | Tablet mutation or product state |
 | `reverse-engineering/ghidra` | Evidence-backed semantic names and local readable exports | Production implementation |
@@ -94,9 +102,23 @@ measurement keeps raw before/after charge readings, sleep-inclusive monotonic
 time, and kernel suspend counters; interpretation remains separate so an
 overnight discharge is not confused with a charging cycle or a failed suspend.
 
-The tablet library is available directly on screen. The Telegram surface keeps
-only two commands: `/library` opens a document remotely and `/export` chooses a
-current-page or whole-document export. Sending a PDF imports and opens it.
+The tablet library is available directly on screen. Telegram opens and exports
+documents and acts as the sharing control plane through `/share`, `/shares`,
+and `/revoke`. Sending a PDF imports and opens it.
+
+A shared page is identified independently of the tablet's current view. The
+relay is its ordered, durable authority for 24 hours, so browser participants
+continue drawing while the tablet is offline. Clients exchange stroke points
+and erasure replacements, not framebuffer tiles; each replica rasterizes the
+same core stroke model. The relay assigns every guest a non-black color and
+materializes that identity into operations. Guests may replace only their own
+strokes; the black owner may replace any stroke.
+
+The capability secret is delivered only in the URL fragment, redeemed once,
+then removed from browser history and replaced by a Secure, HttpOnly,
+SameSite cookie. The public origin is `https://remarque.geiger.ink`. Periodic
+snapshot digests detect divergence, while snapshots establish and repair a
+replica without making full-frame transfer the steady-state protocol.
 
 The Telegram daemon and graphical process have no shared memory or lifecycle.
 They exchange atomically renamed JSON requests and responses through the same

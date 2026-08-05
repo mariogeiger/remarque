@@ -1,7 +1,9 @@
 mod config;
+mod page_relay_api;
 mod telegram_api;
 
 use config::TelegramConfig;
+use page_relay_api::PageRelayApi;
 use remarque_document::{
     DocumentExchange, DocumentRequest, DocumentRequestKind, DocumentResponse, DocumentResponseKind,
     DocumentSummary, ExportScope, pdf_content_id, read_json, write_json_atomically,
@@ -10,21 +12,35 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fs;
 use std::io::{self, Read};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use telegram_api::{
     TelegramApi, TelegramButton, TelegramCallbackQuery, TelegramDocument, TelegramMessage,
     TelegramUpdate,
 };
 
-const HELP: &str = "Envoie-moi un PDF pour l’importer. /library choisit le document affiché et /export renvoie la page actuelle ou toutes les pages annotées.";
+const HELP: &str = "Envoie-moi un PDF pour l’importer. /library ouvre un document, /export l’exporte, /share partage la page actuelle et /shares gère les partages.";
 const DOCUMENTS_PER_MESSAGE: usize = 8;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct BotState {
     next_update_id: Option<i64>,
+    #[serde(default)]
+    page_shares: Vec<BotPageShare>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BotPageShare {
+    source_update_id: i64,
+    share_id: String,
+    guest_url: String,
+    owner_token: String,
+    expires_at_unix_seconds: u64,
+    #[serde(default)]
+    revoked: bool,
 }
 
 struct BotRuntime {
@@ -33,6 +49,7 @@ struct BotRuntime {
     data_root: PathBuf,
     state_path: PathBuf,
     exchange: DocumentExchange,
+    relay: Option<PageRelayApi>,
     state: BotState,
 }
 
@@ -64,6 +81,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         api: TelegramApi::new(config.token),
         allowed_chat_id: config.chat_id,
         exchange: DocumentExchange::new(data_root.join("exchange")),
+        relay: config.relay.map(PageRelayApi::new),
         data_root,
         state_path,
         state,
@@ -127,6 +145,12 @@ impl BotRuntime {
         match telegram_command(&message.text) {
             "/library" => self.send_library(update.update_id, &message, 0),
             "/export" => self.send_export_choices(&message),
+            "/share" => self.share_current_page(update.update_id, &message),
+            "/shares" => self.send_page_shares(&message),
+            "/revoke" => {
+                let share_id = message.text.split_whitespace().nth(1).unwrap_or("");
+                self.revoke_page_share(&message, share_id)
+            }
             _ => self.reply(&message, HELP),
         }
     }
@@ -150,6 +174,9 @@ impl BotRuntime {
         if let Some(page) = data.strip_prefix("library:") {
             let page = page.parse::<usize>().unwrap_or(0);
             return self.send_library(update_id, &message, page);
+        }
+        if let Some(share_id) = data.strip_prefix("revoke:") {
+            return self.revoke_page_share(&message, share_id);
         }
         match data {
             "export:page" => self.export(update_id, &message, ExportScope::CurrentPage),
@@ -378,6 +405,162 @@ impl BotRuntime {
         }
     }
 
+    fn share_current_page(
+        &mut self,
+        update_id: i64,
+        message: &TelegramMessage,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(guest_url) = self
+            .state
+            .page_shares
+            .iter()
+            .find(|share| share.source_update_id == update_id && !share.revoked)
+            .map(|share| share.guest_url.clone())
+        {
+            return self.reply(message, &format!("Lien d’édition (24 h) :\n{guest_url}"));
+        }
+        let Some(relay) = self.relay.as_ref() else {
+            return self.reply(message, "Le relais de partage n’est pas configuré.");
+        };
+        ensure_tablet_running()?;
+        let directory = self
+            .data_root
+            .join("shares")
+            .join(format!("prepare-{update_id}"));
+        fs::create_dir_all(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+        let response = self.request_document(
+            DocumentRequest {
+                id: request_id(update_id, 6),
+                kind: DocumentRequestKind::PreparePageShare {
+                    destination_directory: directory.clone(),
+                },
+            },
+            Duration::from_secs(30),
+        )?;
+        let (snapshot_path, background_path) = match response.kind {
+            DocumentResponseKind::PageSharePrepared {
+                snapshot_path,
+                background_path,
+            } => (snapshot_path, background_path),
+            DocumentResponseKind::Failed { message: failure } => {
+                return self.reply(
+                    message,
+                    &format!("Partage de la page impossible : {failure}"),
+                );
+            }
+            _ => return Err(io::Error::other("unexpected response to page share").into()),
+        };
+        let snapshot: remarque_page_log::PageSnapshot = read_json(&snapshot_path)?;
+        match (&snapshot.background, background_path.as_deref()) {
+            (Some(background), Some(path)) => relay.upload_background(&background.digest, path)?,
+            (None, None) => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "prepared background does not match the page snapshot",
+                )
+                .into());
+            }
+        }
+        let created = relay.create_share(&snapshot)?;
+        let connect_response = self.request_document(
+            DocumentRequest {
+                id: request_id(update_id, 7),
+                kind: DocumentRequestKind::ConnectPageShare {
+                    share_id: created.share_id.clone(),
+                    websocket_url: relay.websocket_url(&created.share_id),
+                    owner_token: created.owner_token.clone(),
+                },
+            },
+            Duration::from_secs(10),
+        )?;
+        if !matches!(
+            connect_response.kind,
+            DocumentResponseKind::PageShareConnected
+        ) {
+            let _ = relay.revoke_share(&created.share_id);
+            return Err(io::Error::other("tablet could not connect to the shared page").into());
+        }
+        self.state.page_shares.push(BotPageShare {
+            source_update_id: update_id,
+            share_id: created.share_id,
+            guest_url: created.guest_url.clone(),
+            owner_token: created.owner_token,
+            expires_at_unix_seconds: created.expires_at_unix_seconds,
+            revoked: false,
+        });
+        self.save_state()?;
+        let _ = fs::remove_file(snapshot_path);
+        if let Some(path) = background_path {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_dir(directory);
+        self.reply(
+            message,
+            &format!("Lien d’édition (24 h) :\n{}", created.guest_url),
+        )
+    }
+
+    fn send_page_shares(&self, message: &TelegramMessage) -> Result<(), Box<dyn Error>> {
+        let now = unix_seconds();
+        let shares = self
+            .state
+            .page_shares
+            .iter()
+            .filter(|share| !share.revoked && share.expires_at_unix_seconds > now)
+            .collect::<Vec<_>>();
+        if shares.is_empty() {
+            return self.reply(message, "Aucun partage actif.");
+        }
+        let buttons = shares
+            .iter()
+            .map(|share| {
+                vec![TelegramButton {
+                    text: format!("Révoquer {}", &share.share_id[..8]),
+                    callback_data: format!("revoke:{}", share.share_id),
+                }]
+            })
+            .collect::<Vec<_>>();
+        let links = shares
+            .iter()
+            .map(|share| share.guest_url.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.api.send_message_with_buttons(
+            self.allowed_chat_id,
+            &format!("Partages actifs :\n{links}"),
+            Some(message.message_id),
+            &buttons,
+        )?;
+        Ok(())
+    }
+
+    fn revoke_page_share(
+        &mut self,
+        message: &TelegramMessage,
+        share_id: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        if share_id.parse::<remarque_page_log::ShareId>().is_err() {
+            return self.reply(message, "Utilise /shares puis le bouton Révoquer.");
+        }
+        let Some(index) = self
+            .state
+            .page_shares
+            .iter()
+            .position(|share| share.share_id == share_id && !share.revoked)
+        else {
+            return self.reply(message, "Ce partage n’est pas actif.");
+        };
+        let Some(relay) = self.relay.as_ref() else {
+            return self.reply(message, "Le relais de partage n’est pas configuré.");
+        };
+        relay.revoke_share(share_id)?;
+        self.state.page_shares[index].revoked = true;
+        self.save_state()?;
+        self.reply(message, "Partage révoqué immédiatement.")
+    }
+
     fn request_document(
         &self,
         request: DocumentRequest,
@@ -413,6 +596,13 @@ impl BotRuntime {
 
 fn request_id(update_id: i64, suffix: u64) -> u64 {
     update_id as u64 * 10 + suffix
+}
+
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn telegram_command(text: &str) -> &str {

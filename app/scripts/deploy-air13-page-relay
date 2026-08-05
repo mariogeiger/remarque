@@ -1,0 +1,214 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: $0 [SSH_DESTINATION] [ACCEPTANCE_SHARE_ID] [EXPECTED_COMMITTED_STROKES]" >&2
+    exit 2
+fi
+
+destination=${1:-mgeiger@air13}
+acceptance_share_id=${2:--}
+expected_committed_strokes=${3:--}
+workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+remote_workspace=/Users/mgeiger/git/remarque
+viewer_root=$remote_workspace/target/remarque-page-viewer
+relay_binary=$remote_workspace/target/release/remarque-page-relay
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/remarque-relay-deploy.XXXXXX")
+
+cleanup() {
+    trap - EXIT HUP INT TERM
+    if test -d "$scratch"; then
+        rm -r "$scratch"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+release_id=$(
+    find \
+        "$workspace/app/browser-page-renderer" \
+        "$workspace/app/core" \
+        "$workspace/app/page-log" \
+        "$workspace/app/page-relay" \
+        "$workspace/Cargo.lock" \
+        -type f -print0 |
+        sort -z |
+        xargs -0 sha256sum |
+        sha256sum |
+        cut -c1-20
+)
+bundle=$scratch/$release_id
+protocol_version=$(sed -n 's/^pub const PROTOCOL_VERSION: u16 = \([0-9][0-9]*\);$/\1/p' \
+    "$workspace/app/page-log/src/protocol.rs")
+test -n "$protocol_version"
+
+"$workspace/app/scripts/build-browser-page-renderer" \
+    "$bundle" "/wasm/releases/$release_id"
+grep -F "/wasm/releases/$release_id/remarque_browser_page_renderer.js" \
+    "$bundle/viewer.js" >/dev/null
+printf '%s\n' "$protocol_version" > "$bundle/protocol-version"
+(
+    cd "$bundle"
+    sha256sum \
+        index.html \
+        viewer.js \
+        remarque_browser_page_renderer.js \
+        remarque_browser_page_renderer_bg.wasm \
+        protocol-version > checksums.sha256
+)
+
+cargo test \
+    --manifest-path "$workspace/Cargo.toml" \
+    --package remarque-browser-page-renderer \
+    --package remarque-page-relay
+cargo clippy \
+    --manifest-path "$workspace/Cargo.toml" \
+    --package remarque-browser-page-renderer \
+    --package remarque-page-relay \
+    --all-targets -- -D warnings
+
+rsync -a --exclude .build --exclude .git --exclude target \
+    "$workspace/" "$destination:$remote_workspace/"
+ssh "$destination" \
+    "mkdir -p '$viewer_root/releases/$release_id'"
+rsync -a "$bundle/" \
+    "$destination:$viewer_root/releases/$release_id/"
+
+ssh "$destination" sh -s -- \
+    "$remote_workspace" \
+    "$viewer_root" \
+    "$relay_binary" \
+    "$release_id" \
+    "$acceptance_share_id" \
+    "$expected_committed_strokes" <<'REMOTE'
+set -eu
+remote_workspace=$1
+viewer_root=$2
+relay_binary=$3
+relay_data='/Users/mgeiger/Library/Application Support/RemarquePageRelay'
+release_id=$4
+acceptance_share_id=$5
+expected_committed_strokes=$6
+if test "$acceptance_share_id" = -; then
+    acceptance_share_id=
+fi
+if test "$expected_committed_strokes" = -; then
+    expected_committed_strokes=
+fi
+release_directory=$viewer_root/releases/$release_id
+deployments_root=$remote_workspace/target/remarque-page-relay-deployments
+deployment_directory=$deployments_root/$release_id.$(date +%Y%m%dT%H%M%S).$$
+build_directory=$remote_workspace/target/remarque-page-relay-build
+shares_directory=$relay_data/shares
+
+cd "$remote_workspace"
+cargo test --package remarque-browser-page-renderer --package remarque-page-relay
+cargo clippy --package remarque-browser-page-renderer --package remarque-page-relay --all-targets -- -D warnings
+CARGO_TARGET_DIR="$build_directory" cargo build --release --package remarque-page-relay -j 2
+cd "$release_directory"
+shasum -a 256 -c checksums.sha256
+
+previous_viewer=
+if test -L "$viewer_root/current"; then
+    previous_viewer=$(readlink "$viewer_root/current")
+    previous_protocol=$(cat "$viewer_root/current/protocol-version" 2>/dev/null || true)
+    next_protocol=$(cat "$release_directory/protocol-version")
+    if test -n "$previous_protocol" && test "$previous_protocol" != "$next_protocol"; then
+        echo "page relay protocol changed from $previous_protocol to $next_protocol; migrate or revoke live shares explicitly" >&2
+        exit 1
+    fi
+fi
+
+test ! -e "$deployment_directory"
+mkdir -p "$deployment_directory/shares-before"
+cp -p "$relay_binary" "$deployment_directory/previous-relay"
+for share in "$shares_directory"/*.share; do
+    test -e "$share" || continue
+    cp -p "$share" "$deployment_directory/shares-before/"
+done
+
+rollback() {
+    trap - EXIT HUP INT TERM
+    set +e
+    temporary_binary=$remote_workspace/target/release/.remarque-page-relay.rollback.$$
+    cp "$deployment_directory/previous-relay" "$temporary_binary"
+    chmod 0755 "$temporary_binary"
+    mv -f "$temporary_binary" "$relay_binary"
+    if test -n "$previous_viewer"; then
+        temporary_link=$viewer_root/.current.rollback.$$
+        ln -sfn "$previous_viewer" "$temporary_link"
+        mv -h -f "$temporary_link" "$viewer_root/current"
+    else
+        rm -f "$viewer_root/current"
+    fi
+    restarted_pid=$(pgrep -f "^$relay_binary\$" || true)
+    if test -n "$restarted_pid"; then
+        kill "$restarted_pid" || true
+    fi
+    attempt=0
+    while test "$attempt" -lt 45; do
+        if curl -fsS http://127.0.0.1:7433/health >/dev/null; then
+            echo "deployment failed; previous relay binary and viewer restored" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    echo "deployment failed and the restored relay did not become healthy" >&2
+    exit 1
+}
+trap rollback EXIT HUP INT TERM
+
+temporary_binary=$remote_workspace/target/release/.remarque-page-relay.$release_id
+cp "$build_directory/release/remarque-page-relay" "$temporary_binary"
+chmod 0755 "$temporary_binary"
+mv -f "$temporary_binary" "$relay_binary"
+
+temporary_link=$viewer_root/.current.$$
+ln -sfn "releases/$release_id" "$temporary_link"
+mv -h -f "$temporary_link" "$viewer_root/current"
+
+relay_pid=$(pgrep -f "^$relay_binary\$" || true)
+if test -n "$relay_pid"; then
+    kill "$relay_pid" || true
+fi
+attempt=0
+while test "$attempt" -lt 45; do
+    restarted_pid=$(pgrep -f "^$relay_binary\$" || true)
+    basic_health=false
+    if test -n "$restarted_pid" && test "$restarted_pid" != "$relay_pid" && \
+        curl -fsS http://127.0.0.1:7433/health >/dev/null && \
+        curl -fsS http://127.0.0.1:7433/ >/dev/null && \
+        curl -fsS http://127.0.0.1:7433/viewer.js | grep -F "/wasm/releases/$release_id/" >/dev/null
+    then
+        basic_health=true
+    fi
+    share_health=true
+    if test -n "$acceptance_share_id"; then
+        owner_token=$(cat "$relay_data/owner-token")
+        share_status=$(curl -fsS \
+            -H "Authorization: Bearer $owner_token" \
+            "http://127.0.0.1:7433/api/shares/$acceptance_share_id/status" || true)
+        if ! printf '%s' "$share_status" | grep -F '"active_strokes":0' >/dev/null; then
+            share_health=false
+        fi
+        if test -n "$expected_committed_strokes" && \
+            ! printf '%s' "$share_status" | grep -F "\"committed_strokes\":$expected_committed_strokes" >/dev/null
+        then
+            share_health=false
+        fi
+    fi
+    if test "$basic_health" = true && test "$share_health" = true; then
+        trap - EXIT HUP INT TERM
+        find "$deployments_root" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -r -- {} + || true
+        exit 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+done
+exit 1
+REMOTE
+
+curl -fsS https://remarque.geiger.ink/health >/dev/null
+curl -fsS https://remarque.geiger.ink/viewer.js | \
+    grep -F "/wasm/releases/$release_id/" >/dev/null
+echo "deployed page relay viewer release $release_id"

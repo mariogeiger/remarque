@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ink.geiger.remarque-page-relay</string>
+  <key>UserName</key>
+  <string>mgeiger</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/mgeiger/git/remarque/target/release/remarque-page-relay</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/mgeiger/git/remarque</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>REMARQUE_RELAY_LISTEN</key>
+    <string>127.0.0.1:7433</string>
+    <key>REMARQUE_RELAY_PUBLIC_ORIGIN</key>
+    <string>https://remarque.geiger.ink</string>
+    <key>REMARQUE_RELAY_DATA_DIR</key>
+    <string>/Users/mgeiger/Library/Application Support/RemarquePageRelay</string>
+    <key>REMARQUE_RELAY_VIEWER_DIR</key>
+    <string>/Users/mgeiger/git/remarque/target/remarque-page-viewer</string>
+    <key>REMARQUE_RELAY_OWNER_TOKEN_FILE</key>
+    <string>/Users/mgeiger/Library/Application Support/RemarquePageRelay/owner-token</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/mgeiger/Library/Logs/remarque-page-relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mgeiger/Library/Logs/remarque-page-relay.log</string>
+</dict>
+</plist>

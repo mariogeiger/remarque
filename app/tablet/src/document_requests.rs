@@ -39,6 +39,21 @@ fn apply_oldest_document_request(
                 path: destination_path.clone(),
             }
         }),
+        DocumentRequestKind::PreparePageShare {
+            destination_directory,
+        } => notebook.prepare_page_share(destination_directory).map(
+            |(snapshot_path, background_path)| DocumentResponseKind::PageSharePrepared {
+                snapshot_path,
+                background_path,
+            },
+        ),
+        DocumentRequestKind::ConnectPageShare {
+            share_id,
+            websocket_url,
+            owner_token,
+        } => notebook
+            .connect_page_share(share_id, websocket_url, owner_token)
+            .map(|()| DocumentResponseKind::PageShareConnected),
     };
     let response = result.unwrap_or_else(|error| DocumentResponseKind::Failed {
         message: error.to_string(),

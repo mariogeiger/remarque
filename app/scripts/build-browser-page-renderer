@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    echo "usage: $0 OUTPUT_DIRECTORY [ASSET_URL_PREFIX]" >&2
+    exit 2
+fi
+
+workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+output=$1
+asset_url_prefix=${2:-/wasm}
+mkdir -p "$output"
+cp "$workspace/app/browser-page-renderer/index.html" "$output/index.html"
+sed "s|__REMARQUE_BROWSER_RENDERER_MODULE__|$asset_url_prefix/remarque_browser_page_renderer.js|" \
+    "$workspace/app/browser-page-renderer/viewer.js" > "$output/viewer.js"
+cargo build \
+    --manifest-path "$workspace/Cargo.toml" \
+    --package remarque-browser-page-renderer \
+    --target wasm32-unknown-unknown \
+    --release
+wasm-bindgen \
+    "$workspace/target/wasm32-unknown-unknown/release/remarque_browser_page_renderer.wasm" \
+    --target web \
+    --no-typescript \
+    --out-dir "$output"
+wasm="$output/remarque_browser_page_renderer_bg.wasm"
+optimized="$output/.remarque_browser_page_renderer_bg.wasm"
+trap 'rm -f "$optimized"' EXIT
+wasm-opt -Oz \
+    --enable-bulk-memory \
+    --enable-nontrapping-float-to-int \
+    "$wasm" \
+    -o "$optimized"
+mv "$optimized" "$wasm"

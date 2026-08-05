@@ -58,9 +58,27 @@ impl DocumentLibrary {
         Ok(&document.pages[document.current_page])
     }
 
+    pub fn current_page_index(&self, document_id: &str) -> io::Result<usize> {
+        Ok(self.document(document_id)?.current_page)
+    }
+
     pub fn store_strokes(&mut self, document_id: &str, strokes: Vec<Stroke>) -> io::Result<()> {
-        let document = self.document_mut(document_id)?;
-        document.pages[document.current_page].strokes = strokes;
+        let page_index = self.current_page_index(document_id)?;
+        self.store_page_strokes(document_id, page_index, strokes)
+    }
+
+    pub fn store_page_strokes(
+        &mut self,
+        document_id: &str,
+        page_index: usize,
+        strokes: Vec<Stroke>,
+    ) -> io::Result<()> {
+        let page = self
+            .document_mut(document_id)?
+            .pages
+            .get_mut(page_index)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "page was not found"))?;
+        page.strokes = strokes;
         Ok(())
     }
 

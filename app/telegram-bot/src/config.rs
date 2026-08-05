@@ -8,6 +8,13 @@ use std::path::Path;
 pub(crate) struct TelegramConfig {
     pub token: String,
     pub chat_id: i64,
+    pub relay: Option<RelayConfig>,
+}
+
+#[derive(Clone, Deserialize)]
+pub(crate) struct RelayConfig {
+    pub origin: String,
+    pub owner_token: String,
 }
 
 impl TelegramConfig {
@@ -28,7 +35,17 @@ impl TelegramConfig {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
         });
-        if !valid_token || config.chat_id == 0 {
+        let valid_relay = config.relay.as_ref().is_none_or(|relay| {
+            relay.origin.starts_with("https://")
+                && !relay.origin.ends_with('/')
+                && !relay.origin.bytes().any(|byte| byte.is_ascii_whitespace())
+                && relay.owner_token.len() >= 32
+                && !relay
+                    .owner_token
+                    .bytes()
+                    .any(|byte| byte.is_ascii_whitespace())
+        });
+        if !valid_token || config.chat_id == 0 || !valid_relay {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Telegram configuration is invalid",

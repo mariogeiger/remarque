@@ -27,6 +27,14 @@ pub enum DocumentRequestKind {
         destination_path: PathBuf,
         scope: ExportScope,
     },
+    PreparePageShare {
+        destination_directory: PathBuf,
+    },
+    ConnectPageShare {
+        share_id: String,
+        websocket_url: String,
+        owner_token: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -53,10 +61,23 @@ pub struct DocumentResponse {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum DocumentResponseKind {
-    Opened { document: DocumentSummary },
-    Exported { path: PathBuf },
-    Documents { documents: Vec<DocumentSummary> },
-    Failed { message: String },
+    Opened {
+        document: DocumentSummary,
+    },
+    Exported {
+        path: PathBuf,
+    },
+    PageSharePrepared {
+        snapshot_path: PathBuf,
+        background_path: Option<PathBuf>,
+    },
+    PageShareConnected,
+    Documents {
+        documents: Vec<DocumentSummary>,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 pub struct PendingDocumentRequest {

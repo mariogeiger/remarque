@@ -157,7 +157,7 @@ impl TelegramApi {
         }
         #[derive(Serialize)]
         struct Parameters<'a> {
-            commands: [Command<'a>; 2],
+            commands: [Command<'a>; 5],
         }
         let _: bool = self.call_json(
             "setMyCommands",
@@ -170,6 +170,18 @@ impl TelegramApi {
                     Command {
                         command: "export",
                         description: "Exporter la page ou tout le document",
+                    },
+                    Command {
+                        command: "share",
+                        description: "Partager la page actuelle pendant 24 h",
+                    },
+                    Command {
+                        command: "shares",
+                        description: "Afficher et révoquer les partages",
+                    },
+                    Command {
+                        command: "revoke",
+                        description: "Révoquer un partage par son identifiant",
                     },
                 ],
             },

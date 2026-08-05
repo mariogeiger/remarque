@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "app/page-log",
+    "app/page-relay",
+    "app/browser-page-renderer",
     "app/core",
     "app/document",
     "app/tablet",

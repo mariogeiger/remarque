@@ -68,8 +68,11 @@ negative. The raw readings and sleep-inclusive monotonic duration remain
 available for later analysis without reducing them to a potentially misleading
 single estimate.
 
-The stream listens on port `7432` without authentication. Expose it only on a
-trusted local network or through a private network transport.
+The legacy diagnostic screen stream listens on port `7432` without
+authentication. Expose it only on a trusted local network or through a private
+network transport. Collaborative page sharing does not use this framebuffer
+path: it sends ordered stroke operations to the authenticated relay and
+rasterizes them in Rust/WebAssembly in the browser.
 
 ## Build
 

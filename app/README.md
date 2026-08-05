@@ -9,7 +9,13 @@ process, its presentation assets, deployment units, and build adapters.
   single- or multi-page PDF export.
 - `tablet/` adapts those contracts to Paper Pro input, display, interaction,
   PDFium rendering, and in-process screen streaming.
-- `telegram-bot/` is the headless, single-chat library transport.
+- `page-log/` defines the shared-page state machine and compact operation
+  protocol.
+- `page-relay/` is the durable 24-hour collaboration authority.
+- `browser-page-renderer/` redraws shared pages locally through Rust and
+  WebAssembly.
+- `telegram-bot/` is the headless, single-chat document and sharing control
+  plane.
 - `deploy/` contains explicit systemd units for switching between Remarque and
   Xochitl.
 - `scripts/` contains target-linking adapters used to build the application.

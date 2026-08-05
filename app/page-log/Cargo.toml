@@ -1,0 +1,11 @@
+[package]
+name = "remarque-page-log"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+blake3 = "1.8"
+postcard = { version = "1.1", features = ["alloc"] }
+remarque-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
