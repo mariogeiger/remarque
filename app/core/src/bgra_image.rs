@@ -68,8 +68,8 @@ impl BgraImage {
             .and_then(|pixel_count| pixel_count.checked_mul(4))
             .expect("BGRA image dimensions overflow");
         let mut pixels = vec![0; byte_count];
-        for pixel in pixels.chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[rgb[2], rgb[1], rgb[0], 0xff]);
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            *pixel = [rgb[2], rgb[1], rgb[0], 0xff];
         }
         Self {
             width,
@@ -137,13 +137,17 @@ impl BgraImage {
                 continue;
             }
             let first = row
-                .chunks_exact(4)
-                .zip(other_row.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(other_row.as_chunks::<4>().0)
                 .position(|(pixel, other_pixel)| pixel != other_pixel)
                 .unwrap();
             let last = row
-                .chunks_exact(4)
-                .zip(other_row.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(other_row.as_chunks::<4>().0)
                 .rposition(|(pixel, other_pixel)| pixel != other_pixel)
                 .unwrap();
             difference_left = difference_left.min(left + first);

@@ -177,7 +177,9 @@ impl BrowserPageRenderer {
         let first_point = u32::try_from(local.builder.points().len())
             .map_err(|_| JsValue::from_str("stroke point count exceeds protocol limits"))?;
         let points = coordinates_and_pressure
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|sample| {
                 local.builder.append_sample(
                     PenSample {
@@ -636,7 +638,9 @@ fn eraser_centerline(coordinates: &[f64], width: f64) -> Result<Vec<Point>, JsVa
         return Err(JsValue::from_str("eraser path or width is invalid"));
     }
     Ok(coordinates
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|point| Point {
             x: point[0],
             y: point[1],
