@@ -7,10 +7,9 @@ use remarque_core::render_fineliner::{
 use remarque_core::stroke::PenSample;
 use remarque_core::view_transform::Point;
 use remarque_page_log::{
-    AppliedPageOperation, ClientMessage, CommandId, PageCommand, PageJournal, PageOperation,
-    PageSnapshot, Participant, ParticipantId, ServerMessage, SharedStroke, StrokeId,
-    StrokeReplacement, SubmittedPageOperation, decode_server_message, encode_client_message,
-    snapshot_digest,
+    AppliedPageOperation, ClientMessage, CommandId, HistoryAvailability, PageCommand, PageJournal,
+    PageOperation, PageSnapshot, Participant, ParticipantId, ServerMessage, StrokeId,
+    SubmittedPageOperation, decode_server_message, encode_client_message, snapshot_digest,
 };
 use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
@@ -40,6 +39,7 @@ pub struct BrowserPageRenderer {
     rejection: Option<String>,
     pending_commands: Vec<PageCommand>,
     reconnect_ready: bool,
+    history: HistoryAvailability,
 }
 
 #[wasm_bindgen]
@@ -66,6 +66,7 @@ impl BrowserPageRenderer {
             rejection: None,
             pending_commands: Vec::new(),
             reconnect_ready: false,
+            history: HistoryAvailability::default(),
         })
     }
 
@@ -77,16 +78,21 @@ impl BrowserPageRenderer {
                 protocol_version,
                 participant,
                 snapshot,
+                history,
             } => {
                 if protocol_version != remarque_page_log::PROTOCOL_VERSION {
                     return Err(JsValue::from_str("unsupported page protocol version"));
                 }
                 self.queue_unfinished_stroke_cancellation()?;
                 self.participant = Some(participant);
+                self.history = history;
                 self.replace_snapshot(snapshot)?;
                 self.reconnect_ready = true;
             }
-            ServerMessage::Applied { operation } => {
+            ServerMessage::Applied { operation, history } => {
+                let operation_is_ours = self
+                    .participant
+                    .is_some_and(|participant| participant.id == operation.actor);
                 self.pending_commands
                     .retain(|command| command.id != operation.command_id);
                 if self
@@ -96,8 +102,14 @@ impl BrowserPageRenderer {
                 {
                     self.apply_operation(operation)?;
                 }
+                if operation_is_ours {
+                    self.history = history;
+                }
             }
-            ServerMessage::Snapshot { snapshot } => self.replace_snapshot(snapshot)?,
+            ServerMessage::Snapshot { snapshot, history } => {
+                self.replace_snapshot(snapshot)?;
+                self.history = history;
+            }
             ServerMessage::Digest { revision, digest } => {
                 let Some(journal) = &self.journal else {
                     self.needs_snapshot = true;
@@ -211,38 +223,9 @@ impl BrowserPageRenderer {
         width: f64,
     ) -> Result<Vec<u8>, JsValue> {
         let centerline = eraser_centerline(coordinates, width)?;
-        let participant = self
-            .participant
+        self.participant
             .ok_or_else(|| JsValue::from_str("participant has not joined the page"))?;
-        let strokes = self.snapshot()?.strokes.clone();
-        let mut replacements = Vec::new();
-        for stroke in strokes
-            .into_iter()
-            .filter(|stroke| stroke.author == participant.id)
-        {
-            let surviving = erase_stroke(&stroke.points, &centerline, width);
-            if surviving.len() == 1 && surviving[0] == stroke.points {
-                continue;
-            }
-            let fragments = surviving
-                .into_iter()
-                .map(|points| SharedStroke {
-                    id: StrokeId::from_bytes(self.next_identifier(b"erased-stroke")),
-                    author: stroke.author,
-                    color: stroke.color,
-                    points,
-                })
-                .collect();
-            replacements.push(StrokeReplacement {
-                removed: stroke.id,
-                fragments,
-            });
-        }
-        if replacements.is_empty() {
-            self.restore_erase_preview()?;
-            return Ok(Vec::new());
-        }
-        self.encode_command(SubmittedPageOperation::ReplaceStrokes { replacements })
+        self.encode_command(SubmittedPageOperation::Erase { centerline, width })
     }
 
     pub fn preview_erase_with_centerline(
@@ -265,6 +248,22 @@ impl BrowserPageRenderer {
 
     pub fn cancel_erase_preview(&mut self) -> Result<(), JsValue> {
         self.restore_erase_preview()
+    }
+
+    pub fn undo(&mut self) -> Result<Vec<u8>, JsValue> {
+        self.encode_command(SubmittedPageOperation::Undo)
+    }
+
+    pub fn redo(&mut self) -> Result<Vec<u8>, JsValue> {
+        self.encode_command(SubmittedPageOperation::Redo)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo
     }
 
     pub fn request_snapshot(&self) -> Result<Vec<u8>, JsValue> {
@@ -542,6 +541,11 @@ impl BrowserPageRenderer {
                 self.redraw_snapshot()?;
                 return Ok(());
             }
+            PageOperation::SetCommittedStrokes { .. } => {
+                self.redraw_snapshot()?;
+                return Ok(());
+            }
+            PageOperation::NoChange => None,
         };
         if let Some(changed) = changed {
             self.copy_bgra_to_rgba(changed);
@@ -659,7 +663,8 @@ mod tests {
     use remarque_core::color::Color;
     use remarque_core::stroke::StrokePoint;
     use remarque_page_log::{
-        PROTOCOL_VERSION, PageDimensions, PageIdentity, ParticipantId, decode_client_message,
+        PROTOCOL_VERSION, PageDimensions, PageIdentity, ParticipantId, SharedStroke,
+        decode_client_message,
     };
 
     fn welcome() -> Vec<u8> {
@@ -684,6 +689,7 @@ mod tests {
                 active_strokes: Vec::new(),
                 revision: 0,
             },
+            history: HistoryAvailability::default(),
         })
     }
 
@@ -736,6 +742,7 @@ mod tests {
                 active_strokes: Vec::new(),
                 revision: 0,
             },
+            history: HistoryAvailability::default(),
         })
     }
 

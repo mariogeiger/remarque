@@ -1,8 +1,8 @@
-use crate::{AppliedPageOperation, PageCommand, PageSnapshot, Participant};
+use crate::{AppliedPageOperation, HistoryAvailability, PageCommand, PageSnapshot, Participant};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -19,12 +19,15 @@ pub enum ServerMessage {
         protocol_version: u16,
         participant: Participant,
         snapshot: PageSnapshot,
+        history: HistoryAvailability,
     },
     Applied {
         operation: AppliedPageOperation,
+        history: HistoryAvailability,
     },
     Snapshot {
         snapshot: PageSnapshot,
+        history: HistoryAvailability,
     },
     Digest {
         revision: u64,
@@ -90,6 +93,7 @@ mod tests {
                 active_strokes: Vec::new(),
                 revision: 7,
             },
+            history: HistoryAvailability::default(),
         };
         let bytes = encode_server_message(&message).unwrap();
         assert_eq!(decode_server_message(&bytes).unwrap(), message);

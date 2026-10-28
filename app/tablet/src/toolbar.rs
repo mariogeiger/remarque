@@ -3,7 +3,7 @@ use remarque_core::fineliner::FinelinerThickness;
 
 pub const PANEL_X: usize = 16;
 pub const PANEL_Y: usize = 8;
-pub const PANEL_WIDTH: usize = 758;
+pub const PANEL_WIDTH: usize = 898;
 pub const PANEL_HEIGHT: usize = 68;
 pub const BUTTON_Y: usize = 14;
 pub const BUTTON_HEIGHT: usize = 56;
@@ -24,8 +24,11 @@ pub const PAGE_INDICATOR_X: usize = 586;
 pub const PAGE_INDICATOR_WIDTH: usize = 96;
 pub const ADD_PAGE_BUTTON_X: usize = 694;
 pub const ADD_PAGE_BUTTON_WIDTH: usize = 72;
+pub const UNDO_BUTTON_X: usize = 786;
+pub const REDO_BUTTON_X: usize = 850;
+pub const HISTORY_BUTTON_WIDTH: usize = 56;
 #[cfg(feature = "takeover")]
-pub(crate) const SEPARATOR_XS: [usize; 3] = [106, 334, 574];
+pub(crate) const SEPARATOR_XS: [usize; 4] = [106, 334, 574, 780];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolbarAction {
@@ -33,6 +36,8 @@ pub enum ToolbarAction {
     SelectColor(Color),
     ShowLibrary,
     InsertBlankPage,
+    Undo,
+    Redo,
     None,
 }
 
@@ -43,7 +48,7 @@ pub(crate) struct ToolbarActionRegion {
     pub action: ToolbarAction,
 }
 
-pub(crate) const ACTION_REGIONS: [ToolbarActionRegion; 11] = [
+pub(crate) const ACTION_REGIONS: [ToolbarActionRegion; 13] = [
     ToolbarActionRegion {
         x: LIBRARY_BUTTON_X,
         width: LIBRARY_BUTTON_WIDTH,
@@ -99,6 +104,16 @@ pub(crate) const ACTION_REGIONS: [ToolbarActionRegion; 11] = [
         width: ADD_PAGE_BUTTON_WIDTH,
         action: ToolbarAction::InsertBlankPage,
     },
+    ToolbarActionRegion {
+        x: UNDO_BUTTON_X,
+        width: HISTORY_BUTTON_WIDTH,
+        action: ToolbarAction::Undo,
+    },
+    ToolbarActionRegion {
+        x: REDO_BUTTON_X,
+        width: HISTORY_BUTTON_WIDTH,
+        action: ToolbarAction::Redo,
+    },
 ];
 
 pub fn toolbar_action_at_x(x: usize) -> ToolbarAction {
@@ -143,6 +158,8 @@ mod tests {
             toolbar_action_at_x(ADD_PAGE_BUTTON_X),
             ToolbarAction::InsertBlankPage
         );
+        assert_eq!(toolbar_action_at_x(UNDO_BUTTON_X), ToolbarAction::Undo);
+        assert_eq!(toolbar_action_at_x(REDO_BUTTON_X), ToolbarAction::Redo);
     }
 
     #[test]

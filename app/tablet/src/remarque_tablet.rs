@@ -129,7 +129,9 @@ fn main() -> io::Result<()> {
         apply_all_pending_document_requests(&mut notebook, &exchange)?;
         if let Err(error) = notebook.apply_shared_page_messages() {
             eprintln!("shared_page_disabled_after_error={error}");
-            notebook.disconnect_page_share();
+            if let Err(error) = notebook.disconnect_page_share() {
+                eprintln!("shared_page_toolbar_redraw_failed={error}");
+            }
         }
         notebook.redraw_library_if_device_status_changed()?;
         if suspend_requested {

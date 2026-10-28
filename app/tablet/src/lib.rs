@@ -32,6 +32,8 @@ pub mod notebook;
 mod page;
 #[cfg(any(feature = "takeover", test))]
 mod page_coordinates;
+#[cfg(any(feature = "takeover", test))]
+mod page_edit_histories;
 #[cfg(feature = "takeover")]
 mod pdfium;
 #[cfg(any(feature = "takeover", test))]

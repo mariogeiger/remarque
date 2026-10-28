@@ -4,20 +4,26 @@ const canvas = document.querySelector("#page");
 const context = canvas.getContext("2d", { alpha: false });
 const status = document.querySelector("#status");
 const eraser = document.querySelector("#eraser");
+const undo = document.querySelector("#undo");
+const redo = document.querySelector("#redo");
+const toolPreview = document.querySelector("#tool-preview");
 const thicknessButtons = [...document.querySelectorAll("[data-thickness]")];
+const finelinerTools = thicknessButtons.map((button) => ({
+  kind: "fineliner",
+  preset: Number(button.dataset.thickness),
+  width: Number(button.dataset.pageWidth),
+}));
+const eraserTool = { kind: "eraser", width: 30 };
 let renderer;
 let socket;
-let pendingSamples = [];
-let appendScheduled = false;
-let erase = false;
-let eraserPoints = [];
-let eraserPreviewScheduled = false;
 let loadedBackground;
 let activeShare;
 let participantSessionToken;
 let reconnectDelay = 1000;
 let stopped = false;
-let activePointer;
+let selectedFinelinerTool = finelinerTools[0];
+let selectedTool = selectedFinelinerTool;
+let activeGesture;
 let canvasImage;
 
 function parseCapability() {
@@ -28,7 +34,7 @@ function parseCapability() {
   }
   const path = location.pathname.match(/^\/share\/([0-9a-f]{32})$/);
   if (path) return { share: path[1] };
-  throw new Error("Lien de partage invalide");
+  throw new Error("Invalid share link");
 }
 
 async function redeem({ share, secret }) {
@@ -41,10 +47,10 @@ async function redeem({ share, secret }) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ secret, session_token: storedSessionToken }),
   });
-  if (!response.ok) throw new Error("Ce partage est invalide ou expiré");
+  if (!response.ok) throw new Error("This share is invalid or has expired");
   const redemption = await response.json();
   if (!/^[0-9a-f]{64}$/.test(redemption.session_token)) {
-    throw new Error("Réponse de partage invalide");
+    throw new Error("Invalid share response");
   }
   localStorage.setItem(storageKey, redemption.session_token);
   return { share, sessionToken: redemption.session_token };
@@ -97,7 +103,7 @@ async function loadBackground() {
     credentials: "same-origin",
     headers,
   });
-  if (!response.ok) throw new Error("Fond de page indisponible");
+  if (!response.ok) throw new Error("Page background is unavailable");
   renderer.set_background_bgra(new Uint8Array(await response.arrayBuffer()));
   loadedBackground = digest;
   paint();
@@ -112,121 +118,241 @@ function pagePoint(event) {
   ];
 }
 
-function scheduleAppend() {
-  if (appendScheduled) return;
-  appendScheduled = true;
-  requestAnimationFrame(() => {
-    appendScheduled = false;
-    if (!pendingSamples.length) return;
-    send(renderer.append_samples(new Float32Array(pendingSamples)));
-    pendingSamples = [];
-  });
+function showError(error) {
+  status.textContent = error instanceof Error ? error.message : String(error);
 }
 
-function scheduleEraserPreview() {
-  if (eraserPreviewScheduled || !eraserPoints.length) return;
-  eraserPreviewScheduled = true;
+function updateHistoryButtons() {
+  undo.disabled = !renderer?.can_undo();
+  redo.disabled = !renderer?.can_redo();
+}
+
+function positionToolPreview(event) {
+  const rectangle = canvas.getBoundingClientRect();
+  const insideCanvas = event.clientX >= rectangle.left
+    && event.clientX <= rectangle.right
+    && event.clientY >= rectangle.top
+    && event.clientY <= rectangle.bottom;
+  if (!insideCanvas) {
+    toolPreview.hidden = true;
+    return;
+  }
+  const tool = activeGesture?.tool || selectedTool;
+  const diameter = tool.width * rectangle.width / canvas.width;
+  toolPreview.dataset.tool = tool.kind;
+  toolPreview.style.left = `${event.clientX}px`;
+  toolPreview.style.top = `${event.clientY}px`;
+  toolPreview.style.width = `${diameter}px`;
+  toolPreview.style.height = `${diameter}px`;
+  toolPreview.hidden = false;
+}
+
+function stopTrackingGesture(gesture) {
+  if (activeGesture !== gesture) return;
+  activeGesture = undefined;
+  if (canvas.hasPointerCapture(gesture.pointerId)) {
+    canvas.releasePointerCapture(gesture.pointerId);
+  }
+}
+
+function appendStrokeSamples(gesture) {
+  if (activeGesture !== gesture || !gesture.samples.length) return;
+  send(renderer.append_samples(new Float32Array(gesture.samples)));
+  gesture.samples = [];
+}
+
+function scheduleStrokeSampleAppend(gesture) {
+  if (gesture.appendScheduled) return;
+  gesture.appendScheduled = true;
   requestAnimationFrame(() => {
-    eraserPreviewScheduled = false;
-    if (!erase || activePointer === undefined || !eraserPoints.length) return;
+    gesture.appendScheduled = false;
     try {
-      renderer.preview_erase_with_centerline(new Float64Array(eraserPoints), 30);
-      paint();
+      appendStrokeSamples(gesture);
     } catch (error) {
-      status.textContent = error instanceof Error ? error.message : String(error);
+      cancelGesture(gesture);
+      showError(error);
     }
   });
 }
 
-function setEraserSelected(selected) {
-  erase = selected;
-  eraser.setAttribute("aria-pressed", String(selected));
+function previewEraserGesture(gesture) {
+  if (activeGesture !== gesture || !gesture.points.length) return;
+  renderer.preview_erase_with_centerline(new Float64Array(gesture.points), gesture.tool.width);
+  paint();
+}
+
+function scheduleEraserPreview(gesture) {
+  if (gesture.previewScheduled || !gesture.points.length) return;
+  gesture.previewScheduled = true;
+  requestAnimationFrame(() => {
+    gesture.previewScheduled = false;
+    try {
+      previewEraserGesture(gesture);
+    } catch (error) {
+      cancelGesture(gesture);
+      showError(error);
+    }
+  });
+}
+
+function cancelGesture(gesture) {
+  if (activeGesture !== gesture) return;
+  try {
+    if (gesture.tool.kind === "eraser") {
+      renderer.cancel_erase_preview();
+      paint();
+    } else if (gesture.strokeStarted) {
+      send(renderer.cancel_stroke());
+    }
+  } catch (error) {
+    showError(error);
+  } finally {
+    stopTrackingGesture(gesture);
+  }
+}
+
+function selectTool(tool) {
+  selectedTool = tool;
+  eraser.setAttribute("aria-pressed", String(tool.kind === "eraser"));
+  for (let index = 0; index < thicknessButtons.length; index += 1) {
+    const selected = tool.kind === "fineliner" && finelinerTools[index] === tool;
+    thicknessButtons[index].setAttribute("aria-pressed", String(selected));
+  }
 }
 
 canvas.addEventListener("pointerdown", (event) => {
-  if (!renderer?.ready() || activePointer !== undefined) return;
-  activePointer = event.pointerId;
-  canvas.setPointerCapture(event.pointerId);
-  if (erase) {
-    const [x, y] = pagePoint(event);
-    eraserPoints.push(x, y);
-    scheduleEraserPreview();
-  } else {
-    send(renderer.begin_stroke());
-    pendingSamples.push(...pagePoint(event));
-    scheduleAppend();
+  if (!renderer?.ready() || activeGesture !== undefined) return;
+  const gesture = {
+    pointerId: event.pointerId,
+    tool: selectedTool,
+    samples: [],
+    points: [],
+    appendScheduled: false,
+    previewScheduled: false,
+    strokeStarted: false,
+  };
+  activeGesture = gesture;
+  try {
+    canvas.setPointerCapture(event.pointerId);
+    if (gesture.tool.kind === "eraser") {
+      const [x, y] = pagePoint(event);
+      gesture.points.push(x, y);
+      scheduleEraserPreview(gesture);
+    } else {
+      const command = renderer.begin_stroke();
+      gesture.strokeStarted = true;
+      send(command);
+      gesture.samples.push(...pagePoint(event));
+      scheduleStrokeSampleAppend(gesture);
+    }
+    positionToolPreview(event);
+  } catch (error) {
+    cancelGesture(gesture);
+    showError(error);
   }
 });
 
 canvas.addEventListener("pointermove", (event) => {
-  if (event.pointerId !== activePointer || !canvas.hasPointerCapture(event.pointerId)) return;
-  for (const sample of event.getCoalescedEvents?.() || [event]) {
-    const point = pagePoint(sample);
-    if (erase) eraserPoints.push(point[0], point[1]);
-    else pendingSamples.push(...point);
+  positionToolPreview(event);
+  const gesture = activeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  try {
+    for (const sample of event.getCoalescedEvents?.() || [event]) {
+      const point = pagePoint(sample);
+      if (gesture.tool.kind === "eraser") gesture.points.push(point[0], point[1]);
+      else gesture.samples.push(...point);
+    }
+    if (gesture.tool.kind === "eraser") scheduleEraserPreview(gesture);
+    else scheduleStrokeSampleAppend(gesture);
+  } catch (error) {
+    cancelGesture(gesture);
+    showError(error);
   }
-  if (erase) scheduleEraserPreview();
-  else scheduleAppend();
 });
 
 canvas.addEventListener("pointerup", (event) => {
-  if (event.pointerId !== activePointer || !canvas.hasPointerCapture(event.pointerId)) return;
-  if (erase) {
-    const [x, y] = pagePoint(event);
-    eraserPoints.push(x, y);
-    renderer.preview_erase_with_centerline(new Float64Array(eraserPoints), 30);
-    const command = renderer.erase_with_centerline(new Float64Array(eraserPoints), 30);
-    if (command.length) send(command);
-    paint();
-    eraserPoints = [];
-    canvas.releasePointerCapture(event.pointerId);
-    activePointer = undefined;
-    return;
+  const gesture = activeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  try {
+    if (gesture.tool.kind === "eraser") {
+      const [x, y] = pagePoint(event);
+      gesture.points.push(x, y);
+      previewEraserGesture(gesture);
+      const command = renderer.erase_with_centerline(
+        new Float64Array(gesture.points),
+        gesture.tool.width,
+      );
+      if (command.length) send(command);
+      paint();
+    } else {
+      gesture.samples.push(...pagePoint(event));
+      appendStrokeSamples(gesture);
+      send(renderer.commit_stroke());
+      gesture.strokeStarted = false;
+    }
+    stopTrackingGesture(gesture);
+    positionToolPreview(event);
+    if (event.pointerType === "touch") toolPreview.hidden = true;
+  } catch (error) {
+    cancelGesture(gesture);
+    showError(error);
   }
-  pendingSamples.push(...pagePoint(event));
-  if (pendingSamples.length) {
-    send(renderer.append_samples(new Float32Array(pendingSamples)));
-    pendingSamples = [];
-  }
-  send(renderer.commit_stroke());
-  canvas.releasePointerCapture(event.pointerId);
-  activePointer = undefined;
 });
 
 canvas.addEventListener("pointercancel", (event) => {
-  if (event.pointerId !== activePointer || !canvas.hasPointerCapture(event.pointerId)) return;
-  if (erase) {
-    renderer.cancel_erase_preview();
-    paint();
-    eraserPoints = [];
-    canvas.releasePointerCapture(event.pointerId);
-    activePointer = undefined;
-    return;
-  }
-  pendingSamples = [];
-  send(renderer.cancel_stroke());
-  canvas.releasePointerCapture(event.pointerId);
-  activePointer = undefined;
+  const gesture = activeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  cancelGesture(gesture);
+  toolPreview.hidden = true;
 });
+
+canvas.addEventListener("lostpointercapture", (event) => {
+  const gesture = activeGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  cancelGesture(gesture);
+});
+
+canvas.addEventListener("pointerleave", () => {
+  toolPreview.hidden = true;
+});
+
+
+
 
 eraser.addEventListener("click", () => {
-  setEraserSelected(!erase);
+  selectTool(eraserTool);
 });
 
-for (const button of thicknessButtons) {
+undo.addEventListener("click", () => {
+  try {
+    send(renderer.undo());
+  } catch (error) {
+    showError(error);
+  }
+});
+
+redo.addEventListener("click", () => {
+  try {
+    send(renderer.redo());
+  } catch (error) {
+    showError(error);
+  }
+});
+
+for (let index = 0; index < thicknessButtons.length; index += 1) {
+  const button = thicknessButtons[index];
   button.addEventListener("click", () => {
-    const preset = Number(button.dataset.thickness);
-    renderer.set_fineliner_thickness(preset);
-    setEraserSelected(false);
-    for (const candidate of thicknessButtons) {
-      candidate.setAttribute("aria-pressed", String(candidate === button));
-    }
+    selectedFinelinerTool = finelinerTools[index];
+    renderer?.set_fineliner_thickness(selectedFinelinerTool.preset);
+    selectTool(selectedFinelinerTool);
   });
 }
 
 async function start() {
   await init();
   renderer = new BrowserPageRenderer(crypto.getRandomValues(new Uint8Array(16)));
+  renderer.set_fineliner_thickness(selectedFinelinerTool.preset);
+  updateHistoryButtons();
   const { share, sessionToken } = await redeem(parseCapability());
   activeShare = share;
   participantSessionToken = sessionToken;
@@ -242,34 +368,31 @@ function connect(share) {
     : new WebSocket(url);
   socket = connection;
   connection.binaryType = "arraybuffer";
-  status.textContent = "Connexion…";
+  status.textContent = "Connecting…";
   connection.addEventListener("open", () => {
     reconnectDelay = 1000;
-    status.textContent = "Connecté";
+    status.textContent = "Connected";
   });
   connection.addEventListener("message", (event) => {
     try {
       renderer.apply_server_message(new Uint8Array(event.data));
       if (renderer.take_reconnect_ready()) {
-        if (activePointer !== undefined && canvas.hasPointerCapture(activePointer)) {
-          canvas.releasePointerCapture(activePointer);
-        }
-        activePointer = undefined;
-        pendingSamples = [];
-        eraserPoints = [];
+        if (activeGesture) stopTrackingGesture(activeGesture);
         for (const bytes of renderer.pending_messages()) send(bytes);
       }
       paint();
-      if (erase && activePointer !== undefined && eraserPoints.length) {
-        scheduleEraserPreview();
+      updateHistoryButtons();
+      if (activeGesture?.tool.kind === "eraser" && activeGesture.points.length) {
+        scheduleEraserPreview(activeGesture);
       }
       loadBackground().catch((error) => { status.textContent = error.message; });
       status.style.borderLeft = `12px solid ${renderer.participant_color()}`;
+      toolPreview.style.setProperty("--participant-color", renderer.participant_color());
       if (renderer.needs_snapshot()) send(renderer.request_snapshot());
       const rejection = renderer.take_rejection();
       if (rejection) {
         status.textContent = rejection;
-        stopped = /revoked|expired|révoqué|expiré/i.test(rejection);
+        stopped = /revoked|expired/i.test(rejection);
       }
     } catch (error) {
       const description = error instanceof Error
@@ -281,7 +404,7 @@ function connect(share) {
   });
   connection.addEventListener("close", () => {
     if (socket !== connection || stopped) return;
-    status.textContent = "Déconnecté — reconnexion…";
+    status.textContent = "Disconnected — reconnecting…";
     setTimeout(() => connect(share), reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 30000);
   });

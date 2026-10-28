@@ -63,23 +63,22 @@ struct Share {
     access: watch::Sender<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct StoredShare {
     pub id: ShareId,
     pub expires_at_unix_seconds: u64,
-    guest_secret_digest: [u8; 32],
-    owner: Participant,
-    participants: Vec<Participant>,
-    sessions: Vec<StoredSession>,
-    journal: PageJournal,
-    #[serde(default)]
-    revoked: bool,
+    pub(crate) guest_secret_digest: [u8; 32],
+    pub(crate) owner: Participant,
+    pub(crate) participants: Vec<Participant>,
+    pub(crate) sessions: Vec<StoredSession>,
+    pub(crate) journal: PageJournal,
+    pub(crate) revoked: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct StoredSession {
-    token_digest: [u8; 32],
-    participant_id: ParticipantId,
+pub(crate) struct StoredSession {
+    pub(crate) token_digest: [u8; 32],
+    pub(crate) participant_id: ParticipantId,
 }
 
 enum ActiveStrokeChange {
@@ -605,6 +604,7 @@ async fn serve_participant(
                 protocol_version: PROTOCOL_VERSION,
                 participant,
                 snapshot: stored.journal.snapshot().clone(),
+                history: stored.journal.history_availability(participant.id),
             },
             share.messages.subscribe(),
         )
@@ -655,10 +655,15 @@ async fn serve_participant(
                         if outgoing.send(Message::Binary(bytes.into())).await.is_err() { break; }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        let snapshot = share.stored.lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .journal.snapshot().clone();
-                        let Ok(bytes) = encode_server_message(&ServerMessage::Snapshot { snapshot }) else { break; };
+                        let (snapshot, history) = {
+                            let stored = share.stored.lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            (
+                                stored.journal.snapshot().clone(),
+                                stored.journal.history_availability(participant.id),
+                            )
+                        };
+                        let Ok(bytes) = encode_server_message(&ServerMessage::Snapshot { snapshot, history }) else { break; };
                         if outgoing.send(Message::Binary(bytes.into())).await.is_err() { break; }
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
@@ -702,7 +707,9 @@ async fn apply_client_message(
             let durable = matches!(
                 &command.operation,
                 SubmittedPageOperation::CommitStroke { .. }
-                    | SubmittedPageOperation::ReplaceStrokes { .. }
+                    | SubmittedPageOperation::Erase { .. }
+                    | SubmittedPageOperation::Undo
+                    | SubmittedPageOperation::Redo
             );
             let result = {
                 let mut stored = share
@@ -733,10 +740,13 @@ async fn apply_client_message(
                                             Some(ActiveStrokeChange::Finished(*stroke_id))
                                         }
                                         PageOperation::AppendStrokePoints { .. }
-                                        | PageOperation::ReplaceStrokes { .. } => None,
+                                        | PageOperation::ReplaceStrokes { .. }
+                                        | PageOperation::SetCommittedStrokes { .. }
+                                        | PageOperation::NoChange => None,
                                     };
                                     let bytes = encode_server_message(&ServerMessage::Applied {
                                         operation: submission.operation,
+                                        history: submission.history,
                                     })
                                     .map_err(|error| error.to_string())?;
                                     if submission.newly_applied {
@@ -781,15 +791,18 @@ async fn apply_client_message(
         }
         ClientMessage::Acknowledge { .. } => {}
         ClientMessage::RequestSnapshot => {
-            let snapshot = share
-                .stored
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .journal
-                .snapshot()
-                .clone();
-            let bytes =
-                encode_server_message(&ServerMessage::Snapshot { snapshot }).map_err(|_| ())?;
+            let (snapshot, history) = {
+                let stored = share
+                    .stored
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                (
+                    stored.journal.snapshot().clone(),
+                    stored.journal.history_availability(participant.id),
+                )
+            };
+            let bytes = encode_server_message(&ServerMessage::Snapshot { snapshot, history })
+                .map_err(|_| ())?;
             outgoing
                 .send(Message::Binary(bytes.into()))
                 .await
@@ -847,14 +860,16 @@ fn finalize_connection_strokes(
                     },
                 )
                 .map_err(RelayError::internal)?;
-            operations.push(submission.operation);
+            operations.push((submission.operation, submission.history));
         }
         if operations.is_empty() {
             return Ok(());
         }
         let applied_messages = operations
             .into_iter()
-            .map(|operation| encode_server_message(&ServerMessage::Applied { operation }))
+            .map(|(operation, history)| {
+                encode_server_message(&ServerMessage::Applied { operation, history })
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(RelayError::internal)?;
         let revision = updated.journal.snapshot().revision;

@@ -2,11 +2,17 @@ struct SharedPageSession {
     identity: PageIdentity,
     journal: PageJournal,
     connection: Option<SharedPageConnection>,
-    pending_commands: Vec<PageCommand>,
+    pending_commands: Vec<PendingSharedPageCommand>,
     client_instance_nonce: [u8; 16],
     next_identifier: u64,
     rasterizers: BTreeMap<StrokeId, SharedStrokeRasterizer>,
-    optimistic_pending_pixels_visible: bool,
+    participant_id: Option<ParticipantId>,
+    history: HistoryAvailability,
+}
+
+struct PendingSharedPageCommand {
+    command: PageCommand,
+    pixels_visible: bool,
 }
 
 struct SharedStrokeRasterizer {
@@ -24,8 +30,12 @@ enum SharedPageUpdate {
 }
 
 impl Notebook {
-    pub fn disconnect_page_share(&mut self) {
+    pub fn disconnect_page_share(&mut self) -> io::Result<()> {
         self.shared_page = None;
+        if self.open_document.is_some() {
+            self.redraw_toolbar()?;
+        }
+        Ok(())
     }
 
     pub fn prepare_page_share(
@@ -104,8 +114,10 @@ impl Notebook {
             client_instance_nonce,
             next_identifier: 0,
             rasterizers: BTreeMap::new(),
-            optimistic_pending_pixels_visible: true,
+            participant_id: None,
+            history: HistoryAvailability::default(),
         });
+        self.redraw_toolbar()?;
         Ok((snapshot_path, background_path.map(|(path, _)| path)))
     }
 
@@ -139,6 +151,7 @@ impl Notebook {
     }
 
     pub fn apply_shared_page_messages(&mut self) -> io::Result<()> {
+        let history_before = self.current_page_history_availability();
         let events = self
             .shared_page
             .as_ref()
@@ -179,7 +192,9 @@ impl Notebook {
             };
             persist |= matches!(
                 operation,
-                PageOperation::CommitStroke { .. } | PageOperation::ReplaceStrokes { .. }
+                PageOperation::CommitStroke { .. }
+                    | PageOperation::ReplaceStrokes { .. }
+                    | PageOperation::SetCommittedStrokes { .. }
             );
             if !locally_drawn && !self.render_shared_page_operation(operation)? {
                 incremental_failed = true;
@@ -187,6 +202,12 @@ impl Notebook {
         }
         if persist || incremental_failed {
             self.store_shared_page_snapshot(incremental_failed)?;
+        }
+        if !incremental_failed
+            && self.current_page_history_availability() != history_before
+            && self.open_document.is_some()
+        {
+            self.redraw_toolbar()?;
         }
         Ok(())
     }
@@ -204,6 +225,7 @@ impl Notebook {
                 protocol_version,
                 participant,
                 snapshot,
+                history,
             } => {
                 if protocol_version != remarque_page_log::PROTOCOL_VERSION
                     || participant.role != remarque_page_log::ParticipantRole::Owner
@@ -216,26 +238,34 @@ impl Notebook {
                     ));
                 }
                 session.journal = PageJournal::from_snapshot(snapshot).map_err(io::Error::other)?;
-                session.optimistic_pending_pixels_visible = session.pending_commands.is_empty();
+                session.participant_id = Some(participant.id);
+                session.history = history;
+                for pending in &mut session.pending_commands {
+                    pending.pixels_visible = false;
+                }
                 if let Some(connection) = &session.connection {
-                    for command in &session.pending_commands {
+                    for pending in &session.pending_commands {
                         connection.send(ClientMessage::Submit {
-                            command: command.clone(),
+                            command: pending.command.clone(),
                         })?;
                     }
                 }
                 Ok(SharedPageUpdate::FullSnapshot)
             }
-            ServerMessage::Applied { operation } => {
+            ServerMessage::Applied { operation, history } => {
                 let was_pending = session
                     .pending_commands
                     .iter()
-                    .position(|command| command.id == operation.command_id)
+                    .position(|pending| pending.command.id == operation.command_id)
                     .map(|index| session.pending_commands.remove(index))
-                    .is_some();
-                let locally_drawn = was_pending && session.optimistic_pending_pixels_visible;
-                if session.pending_commands.is_empty() {
-                    session.optimistic_pending_pixels_visible = true;
+                    .map(|pending| pending.pixels_visible)
+                    .unwrap_or(false);
+                let locally_drawn = was_pending;
+                if session
+                    .participant_id
+                    .is_some_and(|participant_id| participant_id == operation.actor)
+                {
+                    session.history = history;
                 }
                 if operation.revision <= session.journal.snapshot().revision {
                     return Ok(SharedPageUpdate::None);
@@ -251,7 +281,7 @@ impl Notebook {
                     locally_drawn,
                 })
             }
-            ServerMessage::Snapshot { snapshot } => {
+            ServerMessage::Snapshot { snapshot, history } => {
                 if snapshot.identity != session.identity {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -259,7 +289,10 @@ impl Notebook {
                     ));
                 }
                 session.journal = PageJournal::from_snapshot(snapshot).map_err(io::Error::other)?;
-                session.optimistic_pending_pixels_visible = session.pending_commands.is_empty();
+                session.history = history;
+                for pending in &mut session.pending_commands {
+                    pending.pixels_visible = false;
+                }
                 Ok(SharedPageUpdate::FullSnapshot)
             }
             ServerMessage::Digest { revision, digest } => {
@@ -273,7 +306,7 @@ impl Notebook {
                 if let Some(command) = command {
                     session
                         .pending_commands
-                        .retain(|pending| pending.id != command);
+                        .retain(|pending| pending.command.id != command);
                 }
                 eprintln!("shared_page_command_rejected={reason}");
                 request_shared_page_snapshot(session)?;
@@ -301,6 +334,8 @@ impl Notebook {
             strokes.clone(),
         )?;
         save_document_library(&self.state_path, &self.library)?;
+        self.page_edit_histories.clear(&identity);
+        self.page_edit_histories.save(&self.state_path)?;
         if self.current_page_identity().as_ref() == Some(&identity) {
             self.page_mut()?.strokes = strokes;
             if redraw {
@@ -405,7 +440,8 @@ impl Notebook {
                     .remove(&stroke_id);
                 Ok(false)
             }
-            PageOperation::ReplaceStrokes { .. } => Ok(false),
+            PageOperation::ReplaceStrokes { .. } | PageOperation::SetCommittedStrokes { .. } => Ok(false),
+            PageOperation::NoChange => Ok(true),
         }
     }
 
@@ -535,44 +571,28 @@ impl Notebook {
         if !self.current_page_is_shared() {
             return Ok(());
         }
-        let strokes = self
-            .shared_page
-            .as_ref()
-            .unwrap()
-            .journal
-            .snapshot()
-            .strokes
-            .clone();
-        let mut surviving_by_stroke = Vec::new();
-        for stroke in strokes {
-            let surviving = erase_stroke(&stroke.points, centerline, eraser_width);
-            if surviving.len() != 1 || surviving[0] != stroke.points {
-                surviving_by_stroke.push((stroke, surviving));
-            }
-        }
-        if surviving_by_stroke.is_empty() {
-            return Ok(());
-        }
-        let session = self.shared_page.as_mut().unwrap();
-        let replacements = surviving_by_stroke
-            .into_iter()
-            .map(|(stroke, surviving)| StrokeReplacement {
-                removed: stroke.id,
-                fragments: surviving
-                    .into_iter()
-                    .map(|points| SharedStroke {
-                        id: StrokeId::from_bytes(session.next_identifier(b"erased-stroke")),
-                        author: stroke.author,
-                        color: stroke.color,
-                        points,
-                    })
-                    .collect(),
-            })
-            .collect();
-        self.submit_shared_operation(SubmittedPageOperation::ReplaceStrokes { replacements })
+        self.submit_shared_operation(SubmittedPageOperation::Erase {
+            centerline: centerline.to_vec(),
+            width: eraser_width,
+        })
     }
 
     fn submit_shared_operation(&mut self, operation: SubmittedPageOperation) -> io::Result<()> {
+        self.submit_shared_operation_with_pixel_visibility(operation, true)
+    }
+
+    fn submit_shared_operation_without_visible_pixels(
+        &mut self,
+        operation: SubmittedPageOperation,
+    ) -> io::Result<()> {
+        self.submit_shared_operation_with_pixel_visibility(operation, false)
+    }
+
+    fn submit_shared_operation_with_pixel_visibility(
+        &mut self,
+        operation: SubmittedPageOperation,
+        pixels_visible: bool,
+    ) -> io::Result<()> {
         let session = self
             .shared_page
             .as_mut()
@@ -581,7 +601,10 @@ impl Notebook {
             id: CommandId::from_bytes(session.next_identifier(b"command")),
             operation,
         };
-        session.pending_commands.push(command.clone());
+        session.pending_commands.push(PendingSharedPageCommand {
+            command: command.clone(),
+            pixels_visible,
+        });
         if let Some(connection) = &session.connection {
             connection.send(ClientMessage::Submit { command })?;
         }

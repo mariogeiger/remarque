@@ -4,6 +4,7 @@ use crate::draw_text::{draw_text, measure_text_width};
 use crate::fineliner::FinelinerThickness;
 use crate::render_page_view::OUTSIDE_PAGE_RGB;
 use crate::toolbar::{self, ToolbarAction, ToolbarActionRegion};
+use remarque_page_log::HistoryAvailability;
 
 pub(crate) const HEIGHT: usize = 84;
 const PANEL: [u8; 3] = [0xf7, 0xf6, 0xf2];
@@ -19,6 +20,7 @@ pub(crate) fn draw_toolbar(
     color: Color,
     page_number: u32,
     page_count: u32,
+    history: HistoryAvailability,
 ) {
     image.fill_rectangle(0, 0, image.width(), HEIGHT, OUTSIDE_PAGE_RGB);
     image.fill_rounded_rectangle(
@@ -48,6 +50,8 @@ pub(crate) fn draw_toolbar(
                 draw_color_button(image, region, swatch, swatch == color)
             }
             ToolbarAction::InsertBlankPage => draw_add_page_button(image, region),
+            ToolbarAction::Undo => draw_history_button(image, region, history.can_undo, false),
+            ToolbarAction::Redo => draw_history_button(image, region, history.can_redo, true),
             ToolbarAction::None => {}
         }
     }
@@ -117,6 +121,39 @@ fn draw_add_page_button(image: &mut BgraImage, region: ToolbarActionRegion) {
     image.fill_rounded_rectangle(page_x + 3, page_y + 3, 22, 28, 2.0, PANEL);
     image.fill_rounded_rectangle(page_x + 34, page_y + 15, 18, 4, 2.0, ICON);
     image.fill_rounded_rectangle(page_x + 41, page_y + 8, 4, 18, 2.0, ICON);
+}
+
+fn draw_history_button(
+    image: &mut BgraImage,
+    region: ToolbarActionRegion,
+    enabled: bool,
+    points_right: bool,
+) {
+    draw_toolbar_button(image, region, false);
+    let color = if enabled { ICON } else { [0xb8, 0xb7, 0xb2] };
+    let center_x = region.x + region.width / 2;
+    let top = toolbar::BUTTON_Y + 15;
+    image.fill_rounded_rectangle(center_x - 14, top, 28, 4, 2.0, color);
+    let tail_x = if points_right {
+        center_x - 14
+    } else {
+        center_x + 10
+    };
+    image.fill_rounded_rectangle(tail_x, top, 4, 22, 2.0, color);
+    let arrow_tip_x = if points_right {
+        center_x + 14
+    } else {
+        center_x - 14
+    };
+    for offset in 0..10 {
+        let x = if points_right {
+            arrow_tip_x.saturating_sub(offset)
+        } else {
+            arrow_tip_x + offset
+        };
+        image.fill_rectangle(x, top.saturating_sub(offset / 2), 3, 3, color);
+        image.fill_rectangle(x, top + 1 + offset / 2, 3, 3, color);
+    }
 }
 
 fn draw_toolbar_button(image: &mut BgraImage, region: ToolbarActionRegion, selected: bool) {

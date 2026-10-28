@@ -216,7 +216,7 @@ mod tests {
             let message =
                 decode_server_message(&socket.next().await.unwrap().unwrap().into_data()).unwrap();
             match message {
-                ServerMessage::Applied { operation } => match operation.operation {
+                ServerMessage::Applied { operation, .. } => match operation.operation {
                     PageOperation::BeginStroke { stroke } => {
                         assert_eq!(stroke.author, guest.id);
                         assert_eq!(stroke.color, guest.color);
@@ -324,7 +324,8 @@ mod tests {
                 operation: remarque_page_log::AppliedPageOperation {
                     operation: PageOperation::CommitStroke { stroke_id },
                     ..
-                }
+                },
+                ..
             } if stroke_id == abandoned_stroke_id
         ));
         assert!(matches!(

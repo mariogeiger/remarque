@@ -17,6 +17,7 @@ use crate::export_document_pages::export_document_pages;
 use crate::fineliner::{FinelinerStrokeBuilder, FinelinerThickness};
 use crate::input::{PenFrame, PenTool, TouchFrame};
 use crate::page::Page;
+use crate::page_edit_histories::PageEditHistories;
 use crate::pdfium::read_pdf_page_sizes;
 use crate::render_fineliner::{FinelinerRasterizer, render_fineliner_raster_points};
 use crate::render_page_view::{
@@ -36,9 +37,9 @@ use remarque_document::{
     DocumentSummary, ExportScope, write_bytes_atomically, write_json_atomically,
 };
 use remarque_page_log::{
-    BackgroundAsset, BackgroundEncoding, ClientMessage, CommandId, PageCommand, PageDimensions,
-    PageIdentity, PageJournal, PageOperation, PageSnapshot, ParticipantId, ServerMessage,
-    SharedStroke, StrokeId, StrokeReplacement, SubmittedPageOperation, snapshot_digest,
+    BackgroundAsset, BackgroundEncoding, ClientMessage, CommandId, HistoryAvailability,
+    PageCommand, PageDimensions, PageIdentity, PageJournal, PageOperation, PageSnapshot,
+    ParticipantId, ServerMessage, SharedStroke, StrokeId, SubmittedPageOperation, snapshot_digest,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -88,12 +89,14 @@ struct OpenDocument {
 }
 
 include!("notebook_shared_page.rs");
+include!("notebook_history.rs");
 
 pub struct Notebook {
     display: Arc<EpaperDisplay>,
     image: BgraImage,
     open_document: Option<OpenDocument>,
     library: DocumentLibrary,
+    page_edit_histories: PageEditHistories,
     library_screen_index: usize,
     state_path: PathBuf,
     fineliner_thickness: FinelinerThickness,
@@ -122,6 +125,7 @@ impl Notebook {
             image,
             open_document: None,
             library: DocumentLibrary::with_default_notebook(),
+            page_edit_histories: PageEditHistories::default(),
             library_screen_index: 0,
             state_path,
             fineliner_thickness: FinelinerThickness::Thin,
@@ -238,6 +242,8 @@ impl Notebook {
         self.store_open_document_strokes()?;
         let document_id = self.open_document_id()?.to_owned();
         let summary = self.library.insert_blank_page(&document_id)?;
+        self.page_edit_histories
+            .insert_page(&document_id, summary.page_number - 1)?;
         self.show_document(&document_id)?;
         Ok(summary)
     }
@@ -630,6 +636,7 @@ impl Notebook {
                         self.cancel_shared_stroke(shared_stroke)?;
                     }
                 } else {
+                    let strokes_before = self.page()?.strokes.clone();
                     let page_x = self.page()?.rectangle.x as f32;
                     let page_y = self.page()?.rectangle.y as f32;
                     let points: Vec<_> = points
@@ -647,6 +654,7 @@ impl Notebook {
                     if let Some(shared_stroke) = shared_stroke {
                         self.finish_shared_stroke(shared_stroke, &points)?;
                     }
+                    self.record_current_page_edit(&strokes_before)?;
                     self.save_state()?;
                 }
                 if let Some(dirty) = dirty {
@@ -660,6 +668,7 @@ impl Notebook {
             }
             Some(PenContact::Eraser { centerline, .. }) => {
                 if !centerline.is_empty() {
+                    let strokes_before = self.page()?.strokes.clone();
                     let mut surviving = Vec::new();
                     let page_x = self.page()?.rectangle.x as f64;
                     let page_y = self.page()?.rectangle.y as f64;
@@ -683,6 +692,7 @@ impl Notebook {
                         }
                     }
                     page.strokes = surviving;
+                    self.record_current_page_edit(&strokes_before)?;
                     self.save_state()?;
                     let changed = self.redraw_notebook()?;
                     let changed = self.take_pending_pen_pixels_with(changed);
@@ -774,12 +784,14 @@ impl Notebook {
             self.height(),
             TOOLBAR_HEIGHT,
         )?;
-        save_document_library(&self.state_path, &self.library)
+        self.page_edit_histories = PageEditHistories::restore(&self.state_path)?;
+        self.save_state()
     }
 
     fn save_state(&mut self) -> io::Result<()> {
         self.store_open_document_strokes()?;
-        save_document_library(&self.state_path, &self.library)
+        save_document_library(&self.state_path, &self.library)?;
+        self.page_edit_histories.save(&self.state_path)
     }
 
     fn store_open_document_strokes(&mut self) -> io::Result<()> {
@@ -884,12 +896,14 @@ impl Notebook {
 
     fn draw_toolbar_into_image(&mut self) -> io::Result<()> {
         let document = self.library.document_summary(self.open_document_id()?)?;
+        let history = self.current_page_history_availability();
         draw_toolbar(
             &mut self.image,
             self.fineliner_thickness,
             self.color,
             document.page_number,
             document.page_count,
+            history,
         );
         Ok(())
     }
@@ -904,6 +918,8 @@ impl Notebook {
             ToolbarAction::InsertBlankPage => {
                 self.insert_blank_page()?;
             }
+            ToolbarAction::Undo => self.undo_current_page()?,
+            ToolbarAction::Redo => self.redo_current_page()?,
             ToolbarAction::None => {}
         }
         Ok(())

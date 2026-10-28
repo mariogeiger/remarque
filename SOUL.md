@@ -31,3 +31,5 @@ reconstruction and grows beyond them with purpose-built features.
    and stay outside version control until deliberately distilled.
 9. **Keep each file bounded.** Give each file one coherent mission and split it
    before 1000 lines.
+10. **Use English on the web.** Web-facing interfaces serve an international
+    audience and use English; the tablet interface may remain in French.

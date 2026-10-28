@@ -1,6 +1,7 @@
 use crate::{CommandId, ParticipantId, StrokeId};
 use remarque_core::color::Color;
 use remarque_core::stroke::StrokePoint;
+use remarque_core::view_transform::Point;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -71,6 +72,12 @@ pub struct StrokeReplacement {
     pub fragments: Vec<SharedStroke>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HistoryAvailability {
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubmittedPageOperation {
@@ -91,6 +98,12 @@ pub enum SubmittedPageOperation {
     ReplaceStrokes {
         replacements: Vec<StrokeReplacement>,
     },
+    Erase {
+        centerline: Vec<Point>,
+        width: f64,
+    },
+    Undo,
+    Redo,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -119,6 +132,10 @@ pub enum PageOperation {
     ReplaceStrokes {
         replacements: Vec<StrokeReplacement>,
     },
+    SetCommittedStrokes {
+        strokes: Vec<SharedStroke>,
+    },
+    NoChange,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

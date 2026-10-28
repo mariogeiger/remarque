@@ -9,17 +9,18 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import http.client
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -30,7 +31,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
-
 
 OWNER_TOKEN = "browser-test-owner-token-with-at-least-32-bytes"
 
@@ -90,13 +90,19 @@ def firefox() -> webdriver.Firefox:
 
 def wait_until_connected(browser: webdriver.Firefox) -> None:
     WebDriverWait(browser, 20).until(
-        lambda current: current.find_element(By.ID, "status").text == "Connecté"
-        and current.find_element(By.ID, "page").get_attribute("width") != "1"
+        lambda current: (
+            current.find_element(By.ID, "status").text == "Connected"
+            and current.find_element(By.ID, "page").get_attribute("width") != "1"
+        )
     )
 
 
 def canvas_png(browser: webdriver.Firefox) -> bytes:
-    return browser.find_element(By.ID, "page").screenshot_as_png
+    data_url = browser.execute_script(
+        "return arguments[0].toDataURL('image/png')",
+        browser.find_element(By.ID, "page"),
+    )
+    return base64.b64decode(data_url.partition(",")[2])
 
 
 def canvas_digest(browser: webdriver.Firefox) -> str:
@@ -107,7 +113,19 @@ def wait_for_canvas_change(browser: webdriver.Firefox, before: str) -> None:
     WebDriverWait(browser, 10).until(lambda _: canvas_digest(browser) != before)
 
 
-def draw_horizontal_stroke(browser: webdriver.Firefox, y_offset: int) -> tuple[bytes, bytes]:
+def wait_for_canvas_digest(browser: webdriver.Firefox, expected: str) -> None:
+    WebDriverWait(browser, 10).until(lambda _: canvas_digest(browser) == expected)
+
+
+def wait_for_enabled(browser: webdriver.Firefox, element_id: str) -> None:
+    WebDriverWait(browser, 10).until(
+        lambda _: browser.find_element(By.ID, element_id).is_enabled()
+    )
+
+
+def draw_horizontal_stroke(
+    browser: webdriver.Firefox, y_offset: int
+) -> tuple[bytes, bytes]:
     before = canvas_png(browser)
     before_digest = hashlib.sha256(before).hexdigest()
     canvas = browser.find_element(By.ID, "page")
@@ -115,7 +133,7 @@ def draw_horizontal_stroke(browser: webdriver.Firefox, y_offset: int) -> tuple[b
         -100, y_offset
     ).click_and_hold().move_by_offset(200, 0).release().perform()
     wait_for_canvas_change(browser, before_digest)
-    if browser.find_element(By.ID, "status").text != "Connecté":
+    if browser.find_element(By.ID, "status").text != "Connected":
         raise AssertionError(browser.find_element(By.ID, "status").text)
     return before, canvas_png(browser)
 
@@ -127,6 +145,21 @@ def changed_height(before: bytes, after: bytes) -> int:
     if bounds is None:
         return 0
     return bounds[3] - bounds[1]
+
+
+def changed_near_y(before: bytes, after: bytes, y_offset: int) -> bool:
+    before_image = Image.open(io.BytesIO(before)).convert("RGB")
+    after_image = Image.open(io.BytesIO(after)).convert("RGB")
+    center_y = before_image.height // 2 + y_offset
+    region = (
+        before_image.width // 2 - 120,
+        center_y - 20,
+        before_image.width // 2 + 120,
+        center_y + 20,
+    )
+    return ImageChops.difference(
+        before_image.crop(region), after_image.crop(region)
+    ).getbbox() is not None
 
 
 def erase_horizontal_stroke(browser: webdriver.Firefox, y_offset: int) -> None:
@@ -143,33 +176,127 @@ def erase_horizontal_stroke(browser: webdriver.Firefox, y_offset: int) -> None:
         raise AssertionError("eraser did not remain selected after its gesture")
 
 
+def assert_tool_preview(
+    browser: webdriver.Firefox, expected_tool: str, page_width: float
+) -> float:
+    canvas = browser.find_element(By.ID, "page")
+    ActionChains(browser).move_to_element(canvas).move_by_offset(-1, 0).perform()
+    preview = browser.find_element(By.ID, "tool-preview")
+    WebDriverWait(browser, 5).until(lambda _: preview.get_attribute("hidden") is None)
+    geometry = browser.execute_script(
+        """
+        const preview = arguments[0].getBoundingClientRect();
+        const page = arguments[1].getBoundingClientRect();
+        return {
+          diameter: preview.width,
+          pageScale: page.width / arguments[1].width,
+          tool: arguments[0].dataset.tool,
+        };
+        """,
+        preview,
+        canvas,
+    )
+    if geometry["tool"] != expected_tool:
+        raise AssertionError(
+            f"expected {expected_tool} preview, got {geometry['tool']}"
+        )
+    expected_diameter = page_width * geometry["pageScale"]
+    if abs(geometry["diameter"] - expected_diameter) > 0.5:
+        raise AssertionError(
+            f"{expected_tool} preview diameter {geometry['diameter']} did not match "
+            f"the displayed tool diameter {expected_diameter}"
+        )
+    return geometry["diameter"]
+
+
+def erase_while_selecting_fineliner(
+    browser: webdriver.Firefox, y_offset: int, thickness: int
+) -> None:
+    browser.find_element(By.ID, "eraser").click()
+    before = canvas_digest(browser)
+    canvas = browser.find_element(By.ID, "page")
+    ActionChains(browser).move_to_element(canvas).move_by_offset(
+        -100, y_offset
+    ).click_and_hold().move_by_offset(100, 0).perform()
+    fineliner = browser.find_element(By.CSS_SELECTOR, f'[data-thickness="{thickness}"]')
+    browser.execute_script("arguments[0].click()", fineliner)
+    ActionChains(browser).move_by_offset(100, 0).release().perform()
+    wait_for_canvas_change(browser, before)
+    if browser.find_element(By.ID, "eraser").get_attribute("aria-pressed") != "false":
+        raise AssertionError("selecting a fineliner did not activate it")
+
+
 def run_browser_scenarios(origin: str, capability: str, restart_relay) -> None:
     first_profile = firefox()
     second_profile = firefox()
     try:
         first_profile.get(capability)
         wait_until_connected(first_profile)
+        if first_profile.find_element(By.ID, "undo").is_enabled():
+            raise AssertionError("undo was enabled before the participant edited the page")
+        if first_profile.find_element(By.ID, "redo").is_enabled():
+            raise AssertionError("redo was enabled before the participant edited the page")
         first_tab = first_profile.current_window_handle
         first_token = first_profile.execute_script(
             "return Object.values(localStorage)[0]"
         )
 
         first_profile.find_element(By.CSS_SELECTOR, '[data-thickness="0"]').click()
+        thin_preview_diameter = assert_tool_preview(first_profile, "fineliner", 2.75)
+        first_profile.find_element(By.CSS_SELECTOR, '[data-thickness="3"]').click()
+        thick_preview_diameter = assert_tool_preview(first_profile, "fineliner", 8.75)
+        if thick_preview_diameter <= thin_preview_diameter:
+            raise AssertionError(
+                "fineliner preview did not grow with the selected thickness"
+            )
+        first_profile.find_element(By.ID, "eraser").click()
+        eraser_preview_diameter = assert_tool_preview(first_profile, "eraser", 30)
+        if eraser_preview_diameter <= thick_preview_diameter:
+            raise AssertionError(
+                "eraser preview was not wider than the fineliner preview"
+            )
+
+        first_profile.find_element(By.CSS_SELECTOR, '[data-thickness="0"]').click()
         thin_before, thin_after = draw_horizontal_stroke(first_profile, -150)
+        thin_before_digest = hashlib.sha256(thin_before).hexdigest()
+        thin_after_digest = hashlib.sha256(thin_after).hexdigest()
+        wait_for_enabled(first_profile, "undo")
+        first_profile.find_element(By.ID, "undo").click()
+        wait_for_canvas_digest(first_profile, thin_before_digest)
+        wait_for_enabled(first_profile, "redo")
+        first_profile.refresh()
+        wait_until_connected(first_profile)
+        wait_for_enabled(first_profile, "redo")
+        first_profile.find_element(By.ID, "redo").click()
+        wait_for_canvas_digest(first_profile, thin_after_digest)
         first_profile.find_element(By.CSS_SELECTOR, '[data-thickness="3"]').click()
         thick_before, thick_after = draw_horizontal_stroke(first_profile, -90)
         if changed_height(thick_before, thick_after) <= changed_height(
             thin_before, thin_after
         ):
-            raise AssertionError("extra-thick stroke was not wider than the thin stroke")
+            raise AssertionError(
+                "extra-thick stroke was not wider than the thin stroke"
+            )
 
         erase_horizontal_stroke(first_profile, -90)
+        erased_digest = canvas_digest(first_profile)
+        wait_for_enabled(first_profile, "undo")
+        first_profile.find_element(By.ID, "undo").click()
+        wait_for_canvas_digest(first_profile, hashlib.sha256(thick_after).hexdigest())
+        wait_for_enabled(first_profile, "redo")
+        first_profile.find_element(By.ID, "redo").click()
+        wait_for_canvas_digest(first_profile, erased_digest)
         first_profile.find_element(By.CSS_SELECTOR, '[data-thickness="2"]').click()
-        if first_profile.find_element(By.ID, "eraser").get_attribute(
-            "aria-pressed"
-        ) != "false":
-            raise AssertionError("selecting a fineliner thickness did not leave eraser mode")
+        if (
+            first_profile.find_element(By.ID, "eraser").get_attribute("aria-pressed")
+            != "false"
+        ):
+            raise AssertionError(
+                "selecting a fineliner thickness did not leave eraser mode"
+            )
         draw_horizontal_stroke(first_profile, -30)
+        erase_while_selecting_fineliner(first_profile, -30, 1)
+        draw_horizontal_stroke(first_profile, 0)
 
         first_profile.switch_to.new_window("tab")
         first_profile.get(capability)
@@ -178,7 +305,9 @@ def run_browser_scenarios(origin: str, capability: str, restart_relay) -> None:
             "return Object.values(localStorage)[0]"
         )
         if same_profile_token != first_token:
-            raise AssertionError("tabs in one browser profile received different identities")
+            raise AssertionError(
+                "tabs in one browser profile received different identities"
+            )
         draw_horizontal_stroke(first_profile, 30)
 
         first_profile.refresh()
@@ -196,6 +325,27 @@ def run_browser_scenarios(origin: str, capability: str, restart_relay) -> None:
         )
         if second_token == first_token:
             raise AssertionError("separate browser profiles received the same identity")
+
+        before_second_action = canvas_png(first_profile)
+        before_second_digest = hashlib.sha256(before_second_action).hexdigest()
+        draw_horizontal_stroke(second_profile, 210)
+        wait_for_canvas_change(first_profile, before_second_digest)
+        with_second_action = canvas_png(first_profile)
+        wait_for_enabled(first_profile, "undo")
+        first_profile.find_element(By.ID, "undo").click()
+        wait_for_canvas_change(
+            first_profile, hashlib.sha256(with_second_action).hexdigest()
+        )
+        after_personal_undo = canvas_png(first_profile)
+        if not changed_near_y(before_second_action, after_personal_undo, 210):
+            raise AssertionError("personal undo removed another participant's later stroke")
+        if not changed_near_y(with_second_action, after_personal_undo, 150):
+            raise AssertionError("personal undo did not remove the participant's own stroke")
+        wait_for_enabled(first_profile, "redo")
+        first_profile.find_element(By.ID, "redo").click()
+        wait_for_canvas_digest(
+            first_profile, hashlib.sha256(with_second_action).hexdigest()
+        )
 
         second_tab = first_profile.current_window_handle
         local_before = canvas_digest(first_profile)
@@ -293,8 +443,9 @@ def main() -> None:
             stop_relay()
 
     print(
-        "browser collaboration passed: persistent eraser, thickness, erase→draw, profile identity, "
-        "multi-tab IDs, reload, reconnect, and local erase preview"
+        "browser collaboration passed: accurate tool preview, persistent eraser, thickness, "
+        "durable personal undo/redo for strokes and erasing, erase→draw transition, profile "
+        "identity, multi-tab IDs, reload, reconnect, and local erase preview"
     )
 
 

@@ -1,3 +1,4 @@
+use crate::history::PageHistory;
 use crate::{
     ActiveStroke, AppliedPageOperation, CommandId, PageCommand, PageOperation, PageSnapshot,
     Participant, ParticipantRole, SharedStroke, StrokeId, StrokeReplacement,
@@ -29,6 +30,11 @@ pub enum JournalError {
     InvalidReplacement,
     InvalidPage,
     InvalidPoint,
+    InvalidEraser,
+    NothingToRedo,
+    NothingToUndo,
+    TooManyActions,
+    UnsupportedOperation,
 }
 
 impl fmt::Display for JournalError {
@@ -49,6 +55,11 @@ impl fmt::Display for JournalError {
             Self::InvalidReplacement => "stroke replacement is structurally invalid",
             Self::InvalidPage => "page snapshot is structurally invalid",
             Self::InvalidPoint => "stroke contains a non-finite point",
+            Self::InvalidEraser => "eraser path or width is invalid",
+            Self::NothingToRedo => "participant has no action to redo",
+            Self::NothingToUndo => "participant has no action to undo",
+            Self::TooManyActions => "page history exceeds the action limit",
+            Self::UnsupportedOperation => "page operation is no longer supported",
         })
     }
 }
@@ -63,22 +74,27 @@ pub struct PageJournal {
     point_count: usize,
     #[serde(default)]
     stroke_count: usize,
+    #[serde(skip)]
+    history: PageHistory,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Submission {
     pub operation: AppliedPageOperation,
     pub newly_applied: bool,
+    pub history: crate::HistoryAvailability,
 }
 
 impl PageJournal {
     pub fn from_snapshot(snapshot: PageSnapshot) -> Result<Self, JournalError> {
         let (stroke_count, point_count) = validate_snapshot(&snapshot)?;
+        let history = PageHistory::from_baseline(snapshot.strokes.clone());
         Ok(Self {
             snapshot,
             commands: BTreeMap::new(),
             point_count,
             stroke_count,
+            history,
         })
     }
 
@@ -88,6 +104,9 @@ impl PageJournal {
 
     pub fn revalidate(&mut self) -> Result<(), JournalError> {
         let (stroke_count, point_count) = validate_snapshot(&self.snapshot)?;
+        self.history
+            .initialize_legacy_baseline(&self.snapshot.strokes);
+        self.history.validate(&self.snapshot.strokes)?;
         if self.commands.values().any(|(_, operation)| {
             operation.revision == 0 || operation.revision > self.snapshot.revision
         }) {
@@ -111,15 +130,53 @@ impl PageJournal {
             return Ok(Submission {
                 operation: operation.clone(),
                 newly_applied: false,
+                history: self.history.availability(participant.id),
             });
         }
-        let operation = materialize_operation(
-            &self.snapshot,
-            self.stroke_count,
-            self.point_count,
-            participant,
-            &command.operation,
-        )?;
+        let mut next_history = self.history.clone();
+        let operation = match &command.operation {
+            SubmittedPageOperation::Erase { centerline, width } => {
+                if next_history.record_erase(command.id, participant, centerline.clone(), *width)? {
+                    PageOperation::SetCommittedStrokes {
+                        strokes: next_history.rendered_strokes(),
+                    }
+                } else {
+                    PageOperation::NoChange
+                }
+            }
+            SubmittedPageOperation::Undo => {
+                next_history.undo(participant.id)?;
+                PageOperation::SetCommittedStrokes {
+                    strokes: next_history.rendered_strokes(),
+                }
+            }
+            SubmittedPageOperation::Redo => {
+                next_history.redo(participant.id)?;
+                PageOperation::SetCommittedStrokes {
+                    strokes: next_history.rendered_strokes(),
+                }
+            }
+            SubmittedPageOperation::ReplaceStrokes { .. } => {
+                return Err(JournalError::UnsupportedOperation);
+            }
+            operation => {
+                let materialized = materialize_operation(
+                    &self.snapshot,
+                    self.stroke_count,
+                    self.point_count,
+                    participant,
+                    operation,
+                )?;
+                if matches!(operation, SubmittedPageOperation::CommitStroke { .. }) {
+                    let PageOperation::CommitStroke { stroke_id } = &materialized else {
+                        unreachable!("a commit submission materializes as a commit")
+                    };
+                    let stroke = active_stroke(&self.snapshot, *stroke_id)?.clone();
+                    next_history.record_draw(command.id, participant.id, stroke)?;
+                }
+                materialized
+            }
+        };
         let revision = self
             .snapshot
             .revision
@@ -138,12 +195,29 @@ impl PageJournal {
             &applied.operation,
         )?;
         self.snapshot.revision = revision;
+        self.history = next_history;
         self.commands
             .insert(command.id, (command_digest, applied.clone()));
         Ok(Submission {
             operation: applied,
             newly_applied: true,
+            history: self.history.availability(participant.id),
         })
+    }
+
+    pub fn history_availability(
+        &self,
+        participant: crate::ParticipantId,
+    ) -> crate::HistoryAvailability {
+        self.history.availability(participant)
+    }
+
+    pub fn history(&self) -> &PageHistory {
+        &self.history
+    }
+
+    pub fn replace_history(&mut self, history: PageHistory) {
+        self.history = history;
     }
 
     pub fn apply(&mut self, operation: AppliedPageOperation) -> Result<(), JournalError> {
@@ -287,6 +361,9 @@ fn materialize_operation(
                 replacements: replacements.clone(),
             })
         }
+        SubmittedPageOperation::Erase { .. }
+        | SubmittedPageOperation::Undo
+        | SubmittedPageOperation::Redo => Err(JournalError::UnsupportedOperation),
     }
 }
 
@@ -339,6 +416,15 @@ fn apply_operation(
         PageOperation::ReplaceStrokes { replacements } => {
             replace_strokes(snapshot, stroke_count, point_count, replacements)?;
         }
+        PageOperation::SetCommittedStrokes { strokes } => {
+            let mut replaced = snapshot.clone();
+            replaced.strokes.clone_from(strokes);
+            let (resulting_stroke_count, resulting_point_count) = validate_snapshot(&replaced)?;
+            snapshot.strokes.clone_from(strokes);
+            *stroke_count = resulting_stroke_count;
+            *point_count = resulting_point_count;
+        }
+        PageOperation::NoChange => {}
     }
     Ok(())
 }
@@ -542,8 +628,12 @@ mod tests {
     }
 
     fn participant(role: ParticipantRole) -> Participant {
+        participant_with_id(1, role)
+    }
+
+    fn participant_with_id(byte: u8, role: ParticipantRole) -> Participant {
         Participant {
-            id: ParticipantId::from_bytes(id(1)),
+            id: ParticipantId::from_bytes(id(byte)),
             role,
             color: Color::Blue,
         }
@@ -665,7 +755,7 @@ mod tests {
     }
 
     #[test]
-    fn editor_cannot_replace_another_participants_stroke() {
+    fn editor_eraser_leaves_another_participants_stroke_unchanged() {
         let mut journal = journal();
         journal.snapshot.strokes.push(SharedStroke {
             id: StrokeId::from_bytes(id(8)),
@@ -674,21 +764,20 @@ mod tests {
             points: vec![point(1.0)],
         });
         journal.revalidate().unwrap();
-        let error = journal
+        let submission = journal
             .submit(
                 participant(ParticipantRole::Editor),
                 PageCommand {
                     id: CommandId::from_bytes(id(10)),
-                    operation: SubmittedPageOperation::ReplaceStrokes {
-                        replacements: vec![StrokeReplacement {
-                            removed: StrokeId::from_bytes(id(8)),
-                            fragments: Vec::new(),
-                        }],
+                    operation: SubmittedPageOperation::Erase {
+                        centerline: vec![remarque_core::view_transform::Point { x: 1.0, y: 2.0 }],
+                        width: 20.0,
                     },
                 },
             )
-            .unwrap_err();
-        assert_eq!(error, JournalError::Unauthorized);
+            .unwrap();
+        assert_eq!(submission.operation.operation, PageOperation::NoChange);
+        assert_eq!(journal.snapshot().strokes.len(), 1);
     }
 
     #[test]
@@ -706,15 +795,121 @@ mod tests {
                 participant(ParticipantRole::Owner),
                 PageCommand {
                     id: CommandId::from_bytes(id(10)),
-                    operation: SubmittedPageOperation::ReplaceStrokes {
-                        replacements: vec![StrokeReplacement {
-                            removed: StrokeId::from_bytes(id(8)),
-                            fragments: Vec::new(),
-                        }],
+                    operation: SubmittedPageOperation::Erase {
+                        centerline: vec![remarque_core::view_transform::Point { x: 1.0, y: 2.0 }],
+                        width: 20.0,
                     },
                 },
             )
             .unwrap();
         assert!(journal.snapshot().strokes.is_empty());
+    }
+
+    #[test]
+    fn personal_undo_and_redo_survive_other_actions_and_serialization() {
+        let mut journal = journal();
+        let first = participant_with_id(1, ParticipantRole::Editor);
+        let second = participant_with_id(2, ParticipantRole::Editor);
+        submit_stroke(&mut journal, first, 10, 20, 1.0);
+        submit_stroke(&mut journal, second, 30, 40, 50.0);
+
+        let undo = journal
+            .submit(
+                first,
+                PageCommand {
+                    id: CommandId::from_bytes(id(60)),
+                    operation: SubmittedPageOperation::Undo,
+                },
+            )
+            .unwrap();
+        assert!(undo.history.can_redo);
+        assert_eq!(journal.snapshot().strokes.len(), 1);
+        assert_eq!(journal.snapshot().strokes[0].author, second.id);
+
+        let bytes = postcard::to_allocvec(&(journal.clone(), journal.history().clone())).unwrap();
+        let (mut restored, history): (PageJournal, PageHistory) =
+            postcard::from_bytes(&bytes).unwrap();
+        restored.replace_history(history);
+        restored.revalidate().unwrap();
+        assert!(restored.history_availability(first.id).can_redo);
+
+        restored
+            .submit(
+                first,
+                PageCommand {
+                    id: CommandId::from_bytes(id(61)),
+                    operation: SubmittedPageOperation::Redo,
+                },
+            )
+            .unwrap();
+        assert_eq!(restored.snapshot().strokes.len(), 2);
+        assert!(
+            restored
+                .snapshot()
+                .strokes
+                .iter()
+                .any(|stroke| stroke.author == first.id)
+        );
+        assert!(
+            restored
+                .snapshot()
+                .strokes
+                .iter()
+                .any(|stroke| stroke.author == second.id)
+        );
+    }
+
+    #[test]
+    fn persisted_journal_without_history_uses_its_visible_strokes_as_the_baseline() {
+        #[derive(Serialize)]
+        struct PreviousPageJournal {
+            snapshot: PageSnapshot,
+            commands: BTreeMap<CommandId, ([u8; 32], AppliedPageOperation)>,
+            point_count: usize,
+            stroke_count: usize,
+        }
+
+        let previous = PreviousPageJournal {
+            snapshot: journal().snapshot().clone(),
+            commands: BTreeMap::new(),
+            point_count: 0,
+            stroke_count: 0,
+        };
+        let bytes = postcard::to_allocvec(&previous).unwrap();
+        let mut restored: PageJournal = postcard::from_bytes(&bytes).unwrap();
+        restored.revalidate().unwrap();
+        assert_eq!(restored.snapshot(), &previous.snapshot);
+    }
+
+    fn submit_stroke(
+        journal: &mut PageJournal,
+        participant: Participant,
+        stroke_byte: u8,
+        command_byte: u8,
+        x: f32,
+    ) {
+        let stroke_id = StrokeId::from_bytes(id(stroke_byte));
+        for (offset, operation) in [
+            SubmittedPageOperation::BeginStroke { stroke_id },
+            SubmittedPageOperation::AppendStrokePoints {
+                stroke_id,
+                first_point: 0,
+                points: vec![point(x)],
+            },
+            SubmittedPageOperation::CommitStroke { stroke_id },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            journal
+                .submit(
+                    participant,
+                    PageCommand {
+                        id: CommandId::from_bytes(id(command_byte + offset as u8)),
+                        operation,
+                    },
+                )
+                .unwrap();
+        }
     }
 }

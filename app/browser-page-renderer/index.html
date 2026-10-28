@@ -1,33 +1,45 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>Remarque partagé</title>
+  <title>Shared Remarque page</title>
   <style>
     :root { color-scheme: light; font-family: system-ui, sans-serif; background: #d9d8d3; }
     * { box-sizing: border-box; }
     html, body, main { width: 100%; height: 100%; margin: 0; overflow: hidden; }
     main { display: grid; place-items: center; touch-action: none; }
     canvas { display: block; max-width: 100%; max-height: 100%; background: white; box-shadow: 0 2px 18px #0003; }
+    @media (hover: hover) and (pointer: fine) { canvas { cursor: none; } }
     output, .toolbar { position: fixed; bottom: 12px; }
     output { left: 12px; padding: 9px 12px; border-radius: 8px; background: #222d; color: white; }
     .toolbar { right: 12px; display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: #222d; }
     button { display: grid; min-width: 38px; min-height: 38px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: white; font: inherit; }
     button[aria-pressed="true"] { background: white; color: #222; }
+    button:disabled { color: #aaa; opacity: .45; }
+    .history-button { font-size: 24px; line-height: 1; }
+    .toolbar-separator { width: 1px; margin: 5px 2px; background: #fff5; }
     #eraser[aria-pressed="true"] { background: #b33; color: white; }
     .thickness-mark { display: block; width: 22px; height: var(--thickness); border-radius: 99px; background: currentColor; }
+    #tool-preview { position: fixed; z-index: 2; left: 0; top: 0; border: 1px solid white; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+    #tool-preview[data-tool="fineliner"] { background: var(--participant-color, #222); box-shadow: 0 0 0 1px #0009; }
+    #tool-preview[data-tool="eraser"] { border: 1px dashed #222; background: #fff9; box-shadow: 0 0 0 1px #fff9; }
+    #tool-preview[hidden] { display: none; }
   </style>
 </head>
 <body>
   <main><canvas id="page"></canvas></main>
-  <output id="status">Connexion…</output>
+  <div id="tool-preview" data-tool="fineliner" aria-hidden="true" hidden></div>
+  <output id="status">Connecting…</output>
   <div class="toolbar">
-    <button type="button" data-thickness="0" aria-label="Trait fin" aria-pressed="true"><span class="thickness-mark" style="--thickness: 2px"></span></button>
-    <button type="button" data-thickness="1" aria-label="Trait moyen" aria-pressed="false"><span class="thickness-mark" style="--thickness: 4px"></span></button>
-    <button type="button" data-thickness="2" aria-label="Trait épais" aria-pressed="false"><span class="thickness-mark" style="--thickness: 6px"></span></button>
-    <button type="button" data-thickness="3" aria-label="Trait très épais" aria-pressed="false"><span class="thickness-mark" style="--thickness: 8px"></span></button>
-    <button id="eraser" type="button" aria-pressed="false">Gomme</button>
+    <button id="undo" class="history-button" type="button" aria-label="Undo" title="Undo" disabled>↶</button>
+    <button id="redo" class="history-button" type="button" aria-label="Redo" title="Redo" disabled>↷</button>
+    <span class="toolbar-separator" aria-hidden="true"></span>
+    <button type="button" data-thickness="0" data-page-width="2.75" aria-label="Thin stroke" aria-pressed="true"><span class="thickness-mark" style="--thickness: 2px"></span></button>
+    <button type="button" data-thickness="1" data-page-width="4.75" aria-label="Medium stroke" aria-pressed="false"><span class="thickness-mark" style="--thickness: 4px"></span></button>
+    <button type="button" data-thickness="2" data-page-width="6.75" aria-label="Thick stroke" aria-pressed="false"><span class="thickness-mark" style="--thickness: 6px"></span></button>
+    <button type="button" data-thickness="3" data-page-width="8.75" aria-label="Extra-thick stroke" aria-pressed="false"><span class="thickness-mark" style="--thickness: 8px"></span></button>
+    <button id="eraser" type="button" aria-label="Eraser" aria-pressed="false">Eraser</button>
   </div>
   <script type="module" src="/viewer.js"></script>
 </body>

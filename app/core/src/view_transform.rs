@@ -1,6 +1,8 @@
 //! Pure scene/view coordinate transformations recovered from native behavior.
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,

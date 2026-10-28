@@ -9,6 +9,7 @@ fi
 destination=${1:-mgeiger@air13}
 acceptance_share_id=${2:--}
 expected_committed_strokes=${3:--}
+allowed_protocol_upgrade=${REMARQUE_ALLOWED_PROTOCOL_UPGRADE:-}
 workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 remote_workspace=/Users/mgeiger/git/remarque
 viewer_root=$remote_workspace/target/remarque-page-viewer
@@ -79,7 +80,8 @@ ssh "$destination" sh -s -- \
     "$relay_binary" \
     "$release_id" \
     "$acceptance_share_id" \
-    "$expected_committed_strokes" <<'REMOTE'
+    "$expected_committed_strokes" \
+    "$allowed_protocol_upgrade" <<'REMOTE'
 set -eu
 remote_workspace=$1
 viewer_root=$2
@@ -88,6 +90,7 @@ relay_data='/Users/mgeiger/Library/Application Support/RemarquePageRelay'
 release_id=$4
 acceptance_share_id=$5
 expected_committed_strokes=$6
+allowed_protocol_upgrade=$7
 if test "$acceptance_share_id" = -; then
     acceptance_share_id=
 fi
@@ -112,8 +115,10 @@ if test -L "$viewer_root/current"; then
     previous_viewer=$(readlink "$viewer_root/current")
     previous_protocol=$(cat "$viewer_root/current/protocol-version" 2>/dev/null || true)
     next_protocol=$(cat "$release_directory/protocol-version")
-    if test -n "$previous_protocol" && test "$previous_protocol" != "$next_protocol"; then
-        echo "page relay protocol changed from $previous_protocol to $next_protocol; migrate or revoke live shares explicitly" >&2
+    if test -n "$previous_protocol" && test "$previous_protocol" != "$next_protocol" && \
+        test "$allowed_protocol_upgrade" != "$previous_protocol:$next_protocol"
+    then
+        echo "page relay protocol changed from $previous_protocol to $next_protocol; after reviewing storage migration, set REMARQUE_ALLOWED_PROTOCOL_UPGRADE=$previous_protocol:$next_protocol" >&2
         exit 1
     fi
 fi
