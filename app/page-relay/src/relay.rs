@@ -13,6 +13,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, R
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
+use axum::serve::Listener;
 use axum::{Json, Router};
 use constant_time_eq::constant_time_eq;
 use futures_util::{SinkExt, StreamExt};
@@ -24,6 +25,7 @@ use remarque_page_log::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 use std::io;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -49,7 +51,10 @@ const GUEST_COLORS: [Color; 8] = [
 ];
 
 mod access;
+mod error;
 mod log_pointer_events;
+
+use error::RelayError;
 #[derive(Clone)]
 struct RelayState {
     settings: RelaySettings,
@@ -120,62 +125,12 @@ struct RedeemShareResponse {
     expires_at_unix_seconds: u64,
 }
 
-#[derive(Debug)]
-struct RelayError {
-    status: StatusCode,
-    message: String,
-}
-
-impl RelayError {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: message.into(),
-        }
-    }
-
-    fn unauthorized() -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            message: "authentication failed".to_owned(),
-        }
-    }
-
-    fn not_found() -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            message: "share was not found".to_owned(),
-        }
-    }
-
-    fn too_many_requests(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            message: message.into(),
-        }
-    }
-
-    fn internal(error: impl std::fmt::Display) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: error.to_string(),
-        }
-    }
-}
-
-impl IntoResponse for RelayError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(serde_json::json!({ "error": self.message })),
-        )
-            .into_response()
-    }
-}
-
-pub async fn serve(settings: RelaySettings) -> io::Result<()> {
+/// Serves the relay on `listener`, a TCP or Unix listening socket.
+pub async fn serve(
+    settings: RelaySettings,
+    listener: impl Listener<Addr: Debug>,
+) -> io::Result<()> {
     let state = RelayState::load(settings)?;
-    let listener = tokio::net::TcpListener::bind(state.settings.listen_address).await?;
     axum::serve(listener, page_relay_router(state))
         .await
         .map_err(io::Error::other)
