@@ -29,7 +29,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 use tower_http::services::ServeDir;
-
 const SHARE_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 const MAXIMUM_WEBSOCKET_MESSAGE_BYTES: usize = 128 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
@@ -50,7 +49,7 @@ const GUEST_COLORS: [Color; 8] = [
 ];
 
 mod access;
-
+mod log_pointer_events;
 #[derive(Clone)]
 struct RelayState {
     settings: RelaySettings,
@@ -197,6 +196,12 @@ fn page_relay_router(state: RelayState) -> Router {
             axum::routing::put(upload_asset).layer(DefaultBodyLimit::max(MAXIMUM_ASSET_BYTES)),
         )
         .route("/api/shares/{share_id}/redeem", post(redeem_share))
+        .route(
+            "/api/shares/{share_id}/pointer-debug",
+            post(log_pointer_events::log_pointer_events).layer(DefaultBodyLimit::max(
+                log_pointer_events::MAXIMUM_REQUEST_BYTES,
+            )),
+        )
         .route("/api/shares/{share_id}/status", get(share_status))
         .route(
             "/api/shares/{share_id}/assets/{digest}",
@@ -704,6 +709,26 @@ async fn apply_client_message(
     match message {
         ClientMessage::Submit { command } => {
             let command_id = command.id;
+            let terminal_stroke = match &command.operation {
+                SubmittedPageOperation::CommitStroke { stroke_id } => Some(("commit", *stroke_id)),
+                SubmittedPageOperation::CancelStroke { stroke_id } => Some(("cancel", *stroke_id)),
+                SubmittedPageOperation::BeginStroke { .. }
+                | SubmittedPageOperation::AppendStrokePoints { .. }
+                | SubmittedPageOperation::ReplaceStrokes { .. }
+                | SubmittedPageOperation::Erase { .. }
+                | SubmittedPageOperation::Undo
+                | SubmittedPageOperation::Redo => None,
+            };
+            if let Some((action, stroke_id)) = terminal_stroke {
+                eprintln!(
+                    "page_relay_pointer_debug server_ms={} hypothesis=H3 participant_id={} command_id={} stroke_id={} action={}_received",
+                    log_pointer_events::unix_milliseconds(),
+                    participant.id,
+                    command_id,
+                    stroke_id,
+                    action,
+                );
+            }
             let durable = matches!(
                 &command.operation,
                 SubmittedPageOperation::CommitStroke { .. }
@@ -775,6 +800,16 @@ async fn apply_client_message(
             };
             let active_stroke_change = match result {
                 Ok((active_stroke_change, duplicate_response)) => {
+                    if let Some((action, stroke_id)) = terminal_stroke {
+                        eprintln!(
+                            "page_relay_pointer_debug server_ms={} hypothesis=H3 participant_id={} command_id={} stroke_id={} action={}_applied",
+                            log_pointer_events::unix_milliseconds(),
+                            participant.id,
+                            command_id,
+                            stroke_id,
+                            action,
+                        );
+                    }
                     if let Some(bytes) = duplicate_response
                         && outgoing.send(Message::Binary(bytes.into())).await.is_err()
                     {
@@ -783,6 +818,17 @@ async fn apply_client_message(
                     active_stroke_change
                 }
                 Err(reason) => {
+                    if let Some((action, stroke_id)) = terminal_stroke {
+                        eprintln!(
+                            "page_relay_pointer_debug server_ms={} hypothesis=H3 participant_id={} command_id={} stroke_id={} action={}_rejected reason={:?}",
+                            log_pointer_events::unix_milliseconds(),
+                            participant.id,
+                            command_id,
+                            stroke_id,
+                            action,
+                            reason,
+                        );
+                    }
                     send_rejection(outgoing, Some(command_id), reason).await?;
                     return Ok(None);
                 }

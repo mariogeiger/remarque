@@ -25,6 +25,72 @@ let selectedFinelinerTool = finelinerTools[0];
 let selectedTool = selectedFinelinerTool;
 let activeGesture;
 let canvasImage;
+const pointerObservationSession = Array.from(
+  crypto.getRandomValues(new Uint8Array(8)),
+  (byte) => byte.toString(16).padStart(2, "0"),
+).join("");
+let pointerObservationSequence = 0;
+let pointerObservationFlushScheduled = false;
+const pointerEventObservations = [];
+
+function pointerCaptureIsHeld(pointerId) {
+  try {
+    return pointerId !== undefined && canvas.hasPointerCapture(pointerId);
+  } catch {
+    return false;
+  }
+}
+
+function flushPointerEventObservations() {
+  if (pointerObservationFlushScheduled || !activeShare) return;
+  pointerObservationFlushScheduled = true;
+  setTimeout(async () => {
+    pointerObservationFlushScheduled = false;
+    const records = pointerEventObservations.splice(0, 64);
+    if (!records.length) return;
+    try {
+      await fetch(`/api/shares/${activeShare}/pointer-debug`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          ...(participantSessionToken
+            ? { authorization: `Bearer ${participantSessionToken}` }
+            : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ records }),
+        keepalive: true,
+      });
+    } catch {}
+    if (pointerEventObservations.length) flushPointerEventObservations();
+  }, 0);
+}
+
+function recordPointerEventObservation(hypothesis, action, event, gesture = activeGesture) {
+  if (!activeShare) return;
+  const pointerId = event?.pointerId ?? gesture?.pointerId;
+  pointerEventObservations.push({
+    session: pointerObservationSession,
+    sequence: pointerObservationSequence,
+    client_unix_milliseconds: Date.now(),
+    hypothesis,
+    event: event?.type || "internal",
+    action,
+    pointer_type: event?.pointerType || (event?.type?.startsWith("mouse") ? "mouse" : "none"),
+    pointer_id: Number.isInteger(pointerId) ? pointerId : null,
+    buttons: event?.buttons ?? 0,
+    captured: pointerCaptureIsHeld(pointerId),
+    active: activeGesture !== undefined,
+    tool: gesture?.tool.kind || "none",
+    stroke_started: gesture?.strokeStarted || false,
+    sample_count: gesture?.samples.length || 0,
+    point_count: gesture?.points.length || 0,
+    socket_state: socket?.readyState ?? 3,
+  });
+  pointerObservationSequence += 1;
+  if (pointerEventObservations.length > 64) pointerEventObservations.shift();
+  flushPointerEventObservations();
+}
 
 function parseCapability() {
   const capability = location.hash.slice(1);
@@ -203,6 +269,7 @@ function cancelGesture(gesture) {
       paint();
     } else if (gesture.strokeStarted) {
       send(renderer.cancel_stroke());
+      recordPointerEventObservation("H2", "cancel_sent", undefined, gesture);
     }
   } catch (error) {
     showError(error);
@@ -232,6 +299,7 @@ canvas.addEventListener("pointerdown", (event) => {
     strokeStarted: false,
   };
   activeGesture = gesture;
+  recordPointerEventObservation("H1", "pointerdown_received", event, gesture);
   try {
     canvas.setPointerCapture(event.pointerId);
     if (gesture.tool.kind === "eraser") {
@@ -242,11 +310,13 @@ canvas.addEventListener("pointerdown", (event) => {
       const command = renderer.begin_stroke();
       gesture.strokeStarted = true;
       send(command);
+      recordPointerEventObservation("H2", "begin_sent", event, gesture);
       gesture.samples.push(...pagePoint(event));
       scheduleStrokeSampleAppend(gesture);
     }
     positionToolPreview(event);
   } catch (error) {
+    recordPointerEventObservation("H2", "pointerdown_failed", event, gesture);
     cancelGesture(gesture);
     showError(error);
   }
@@ -256,6 +326,9 @@ canvas.addEventListener("pointermove", (event) => {
   positionToolPreview(event);
   const gesture = activeGesture;
   if (!gesture || event.pointerId !== gesture.pointerId) return;
+  if (event.buttons === 0) {
+    recordPointerEventObservation("H1", "pointermove_without_button", event, gesture);
+  }
   try {
     for (const sample of event.getCoalescedEvents?.() || [event]) {
       const point = pagePoint(sample);
@@ -272,6 +345,7 @@ canvas.addEventListener("pointermove", (event) => {
 
 canvas.addEventListener("pointerup", (event) => {
   const gesture = activeGesture;
+  recordPointerEventObservation("H1", "pointerup_received", event, gesture);
   if (!gesture || event.pointerId !== gesture.pointerId) return;
   try {
     if (gesture.tool.kind === "eraser") {
@@ -288,12 +362,14 @@ canvas.addEventListener("pointerup", (event) => {
       gesture.samples.push(...pagePoint(event));
       appendStrokeSamples(gesture);
       send(renderer.commit_stroke());
+      recordPointerEventObservation("H2", "commit_sent", event, gesture);
       gesture.strokeStarted = false;
     }
     stopTrackingGesture(gesture);
     positionToolPreview(event);
     if (event.pointerType === "touch") toolPreview.hidden = true;
   } catch (error) {
+    recordPointerEventObservation("H2", "pointerup_failed", event, gesture);
     cancelGesture(gesture);
     showError(error);
   }
@@ -301,6 +377,7 @@ canvas.addEventListener("pointerup", (event) => {
 
 canvas.addEventListener("pointercancel", (event) => {
   const gesture = activeGesture;
+  recordPointerEventObservation("H1", "pointercancel_received", event, gesture);
   if (!gesture || event.pointerId !== gesture.pointerId) return;
   cancelGesture(gesture);
   toolPreview.hidden = true;
@@ -308,6 +385,7 @@ canvas.addEventListener("pointercancel", (event) => {
 
 canvas.addEventListener("lostpointercapture", (event) => {
   const gesture = activeGesture;
+  recordPointerEventObservation("H1", "lostpointercapture_received", event, gesture);
   if (!gesture || event.pointerId !== gesture.pointerId) return;
   cancelGesture(gesture);
 });
@@ -316,8 +394,17 @@ canvas.addEventListener("pointerleave", () => {
   toolPreview.hidden = true;
 });
 
+window.addEventListener("mouseup", (event) => {
+  if (activeGesture) recordPointerEventObservation("H1", "mouseup_received", event);
+});
 
+canvas.addEventListener("dragstart", (event) => {
+  recordPointerEventObservation("H1", "dragstart_received", event);
+});
 
+canvas.addEventListener("dragend", (event) => {
+  recordPointerEventObservation("H1", "dragend_received", event);
+});
 
 eraser.addEventListener("click", () => {
   selectTool(eraserTool);
@@ -377,6 +464,7 @@ function connect(share) {
     try {
       renderer.apply_server_message(new Uint8Array(event.data));
       if (renderer.take_reconnect_ready()) {
+        recordPointerEventObservation("H3", "reconnect_ready", event);
         if (activeGesture) stopTrackingGesture(activeGesture);
         for (const bytes of renderer.pending_messages()) send(bytes);
       }
@@ -391,10 +479,12 @@ function connect(share) {
       if (renderer.needs_snapshot()) send(renderer.request_snapshot());
       const rejection = renderer.take_rejection();
       if (rejection) {
+        recordPointerEventObservation("H3", "command_rejected", event);
         status.textContent = rejection;
         stopped = /revoked|expired/i.test(rejection);
       }
     } catch (error) {
+      recordPointerEventObservation("H3", "server_message_failed", event);
       const description = error instanceof Error
         ? error.message
         : String(error);
@@ -403,6 +493,7 @@ function connect(share) {
     }
   });
   connection.addEventListener("close", () => {
+    recordPointerEventObservation("H3", "socket_closed", undefined);
     if (socket !== connection || stopped) return;
     status.textContent = "Disconnected — reconnecting…";
     setTimeout(() => connect(share), reconnectDelay);
