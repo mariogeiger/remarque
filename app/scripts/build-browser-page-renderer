@@ -18,7 +18,17 @@ cargo build \
     --package remarque-browser-page-renderer \
     --target wasm32-unknown-unknown \
     --release
-wasm-bindgen \
+# The CLI must read the bindgen format of the wasm-bindgen crate Cargo.lock
+# pins, so the script builds that very version once, under target/.
+bindgen_version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;q}' \
+    "$workspace/Cargo.lock")
+test -n "$bindgen_version"
+bindgen_root=$workspace/target/wasm-bindgen-cli/$bindgen_version
+if ! test -x "$bindgen_root/bin/wasm-bindgen"; then
+    cargo install --locked --quiet wasm-bindgen-cli --version "$bindgen_version" \
+        --root "$bindgen_root"
+fi
+"$bindgen_root/bin/wasm-bindgen" \
     "$workspace/target/wasm32-unknown-unknown/release/remarque_browser_page_renderer.wasm" \
     --target web \
     --no-typescript \
