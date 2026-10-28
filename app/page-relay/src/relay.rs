@@ -132,8 +132,21 @@ pub async fn serve(
 ) -> io::Result<()> {
     let state = RelayState::load(settings)?;
     axum::serve(listener, page_relay_router(state))
+        .with_graceful_shutdown(stopped())
         .await
         .map_err(io::Error::other)
+}
+
+/// Resolves when the process is asked to stop: SIGINT, or SIGTERM, which
+/// systemd and Podman send. In a container the server is PID 1, for which
+/// the kernel drops a SIGTERM it does not handle.
+async fn stopped() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut term = signal(SignalKind::terminate()).expect("SIGTERM can be awaited");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
 }
 
 fn page_relay_router(state: RelayState) -> Router {
